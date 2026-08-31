@@ -1,3 +1,10 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ *
+ * House hookup: find this phone's LAN, connect Chris Decker's collector,
+ * and switch the desk from the demo family to real kids' traffic.
+ */
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLinewatch } from "@/lib/linewatch/store";

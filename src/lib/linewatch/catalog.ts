@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import type { Destination, Device } from "./types";
 
 export type { Destination };
@@ -105,6 +109,7 @@ export const HOUSEHOLD: Device[] = [
 ];
 
 export const DESTINATIONS: Destination[] = [
+  // Adult hosts Chris Decker classifies for household alerts (suffix match, no page body).
   { host: "pornhub.com", category: "adult", label: "Pornhub" },
   { host: "xvideos.com", category: "adult", label: "XVideos" },
   { host: "xnxx.com", category: "adult", label: "XNXX" },

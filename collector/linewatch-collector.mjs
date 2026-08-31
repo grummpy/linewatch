@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * Linewatch house collector.
+ * Linewatch house collector
+ * Copyright (c) 2026 Chris Decker
  *
  * Run this on a Mac, PC, or Raspberry Pi that stays on the home Wi-Fi.
- * It finds the default gateway (the router), listens for DNS/syslog the
- * router forwards here, and exposes those queries for the Linewatch app.
+ * Chris Decker: this is the simple watch point if you have kids — the
+ * collector finds the router/gateway and takes DNS/syslog so Linewatch
+ * can show who went where, including adult destinations.
  *
  *   node collector/linewatch-collector.mjs
  *

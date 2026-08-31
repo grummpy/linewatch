@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { toast } from "sonner";
 import { create } from "zustand";
 import { playAlertTone, playWatchTone } from "./audio";

@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { Ban, Check, ShieldAlert } from "lucide-react";
 import { CategoryBadge } from "@/components/category-badge";
 import { Badge } from "@/components/ui/badge";

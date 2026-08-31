@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import type { DeviceKind, PathKind } from "./types";
 
 export function formatTime(ts: number): string {

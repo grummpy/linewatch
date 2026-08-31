@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { CategoryBadge } from "@/components/category-badge";
 import { Badge } from "@/components/ui/badge";
 import { formatBytes, formatTime, pathTone } from "@/lib/linewatch/format";

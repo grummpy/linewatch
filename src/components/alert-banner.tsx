@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatTime } from "@/lib/linewatch/format";

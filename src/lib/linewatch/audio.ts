@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 let ctx: AudioContext | null = null;
 
 function getCtx(): AudioContext | null {

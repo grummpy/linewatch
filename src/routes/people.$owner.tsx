@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { EventDetail } from "@/components/event-detail";
 import { Badge } from "@/components/ui/badge";

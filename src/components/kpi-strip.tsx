@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { formatBytes } from "@/lib/linewatch/format";
 import { startOfDay } from "@/lib/linewatch/selectors";
 import { useLinewatch } from "@/lib/linewatch/store";

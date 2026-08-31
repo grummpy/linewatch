@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 export type LanProbe = {
   ips: string[];
   likelyGateway: string;

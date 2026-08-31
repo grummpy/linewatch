@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Archive, Home, Radio, Settings2, Users } from "lucide-react";
 import type { ReactNode } from "react";

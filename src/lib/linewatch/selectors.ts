@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { CATEGORY_LABEL, type Alert, type ArchiveRow, type Category, type Device, type FeedFilter, type PathKind, type TrafficEvent } from "./types";
 
 export function deviceById(devices: Device[], id: string): Device | undefined {

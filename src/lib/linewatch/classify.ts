@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { DESTINATIONS } from "./catalog";
 import type { Category, Destination, Device, PathKind, Risk, Rules } from "./types";
 import { SYSTEM_HOSTS } from "./types";
@@ -98,6 +102,7 @@ export function riskFor(opts: {
   rules: Rules;
 }): Risk {
   const { category, role, ts, rules } = opts;
+  // Chris Decker: adult is an alert only on child-role devices, not parents.
   if (category === "adult" && rules.alertAdult && role === "child") return "alert";
   if (
     category === "social" &&

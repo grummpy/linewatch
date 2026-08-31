@@ -1,3 +1,7 @@
+/**
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ */
 import { DESTINATIONS, HOUSEHOLD } from "./catalog";
 import {
   classifyHost,

@@ -1,6 +1,8 @@
 {
-  "name": "app-builder-workspace",
+  "name": "linewatch",
   "private": true,
+  "author": "Chris Decker",
+  "license": "UNLICENSED",
   "sideEffects": false,
   "type": "module",
   "overrides": {

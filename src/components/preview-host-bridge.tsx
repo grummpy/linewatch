@@ -1,6 +1,8 @@
 /**
- * Mount once in `__root.tsx` so the Grok preview chrome can drive navigation
- * (and later receive registered routes). Noops when the app is not embedded.
+ * Linewatch — household outbound watch
+ * Copyright (c) 2026 Chris Decker
+ *
+ * Optional preview-host bridge. Noops when Linewatch is not embedded.
  */
 
 import { useEffect } from "react";
