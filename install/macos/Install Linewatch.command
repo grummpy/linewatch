@@ -12,7 +12,8 @@ fi
 ROOT="$PWD"
 NODE_BIN="$(command -v node)"
 PLIST_TMP="$(mktemp -t linewatch.XXXXXX.plist)"
-cleanup() { rm -f "$PLIST_TMP"; }
+SCRIPT_TMP="/tmp/linewatch-install-$$.sh"
+cleanup() { rm -f "$PLIST_TMP" "$SCRIPT_TMP"; }
 trap cleanup EXIT
 
 xml_escape() {
@@ -35,5 +36,25 @@ cat > "$PLIST_TMP" <<EOF
 EOF
 
 echo "Linewatch needs your Mac password once to install its always-on DNS service."
-osascript -e "do shell script \"mkdir -p '/Library/Application Support/Linewatch/app' && rm -rf '/Library/Application Support/Linewatch/app/collector' && cp -R '$ROOT/collector' '/Library/Application Support/Linewatch/app/collector' && cp '$PLIST_TMP' /Library/LaunchDaemons/com.linewatch.collector.plist && chown root:wheel /Library/LaunchDaemons/com.linewatch.collector.plist && chmod 644 /Library/LaunchDaemons/com.linewatch.collector.plist && launchctl bootout system/com.linewatch.collector >/dev/null 2>&1 || true; launchctl bootstrap system /Library/LaunchDaemons/com.linewatch.collector.plist && launchctl enable system/com.linewatch.collector\" with administrator privileges"
+{
+  echo '#!/bin/bash'
+  echo 'set -e'
+  printf 'SOURCE=%q\n' "$ROOT/collector"
+  printf 'PLIST=%q\n' "$PLIST_TMP"
+  cat <<'ROOT_SCRIPT'
+mkdir -p '/Library/Application Support/Linewatch/app'
+rm -rf '/Library/Application Support/Linewatch/app/collector'
+cp -R "$SOURCE" '/Library/Application Support/Linewatch/app/collector'
+install -o root -g wheel -m 644 "$PLIST" /Library/LaunchDaemons/com.linewatch.collector.plist
+launchctl bootout system/com.linewatch.collector >/dev/null 2>&1 || true
+launchctl bootstrap system /Library/LaunchDaemons/com.linewatch.collector.plist
+launchctl enable system/com.linewatch.collector
+ROOT_SCRIPT
+} > "$SCRIPT_TMP"
+chmod 700 "$SCRIPT_TMP"
+osascript - "$SCRIPT_TMP" <<'APPLESCRIPT'
+on run argv
+  do shell script "/bin/bash " & quoted form of (item 1 of argv) with administrator privileges
+end run
+APPLESCRIPT
 exec "$NODE_BIN" install/setup.mjs --desk-only
