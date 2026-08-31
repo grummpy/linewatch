@@ -38,12 +38,15 @@ function SettingsPage() {
         <header>
           <h1 className="text-2xl font-medium tracking-tight md:text-3xl">Setup</h1>
           <p className="mt-1 text-sm text-muted">
-            Same Linewatch on Windows, iPhone, Android, and Mac — install the app, then watch the
-            house from your pocket.
+            Point this at your house. The collector computer stays on; this phone can close.
           </p>
         </header>
 
         <HouseConnect />
+
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted">Phone install, alerts, paste a log</summary>
+          <div className="mt-4 flex flex-col gap-8">
 
         <section className="rounded-lg bg-surface p-4 shadow-[var(--shadow-border)] md:p-5">
           <h2 className="text-sm font-medium">Install the app</h2>
@@ -230,6 +233,8 @@ function SettingsPage() {
             </ul>
           )}
         </section>
+          </div>
+        </details>
       </div>
     </AppShell>
   );

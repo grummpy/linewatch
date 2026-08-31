@@ -8,8 +8,9 @@ ordinary WAN data, ties hits to a person and device, and alerts you on your
 phone.
 
 If you have kids, the simple setup is: **Pi-hole as house DNS → Linewatch
-collector on that box → this app on your phone.** Full steps in
-[SETUP.md](./SETUP.md).
+collector on that box (leave it on) → this app on your phone.** The app finds
+your router when it opens. Close the phone — the collector keeps the 7-day log
+(older rows are overwritten). Full steps in [SETUP.md](./SETUP.md).
 
 Public source: [github.com/grummpy/linewatch](https://github.com/grummpy/linewatch)
 
@@ -34,10 +35,12 @@ product.
    the router’s DNS at it. Every device in the house now asks that box for
    names.
 2. `LINEWATCH_DNS_LOG=/var/log/pihole.log npm run collector`
-3. Open Linewatch → Setup → Your house → Connect.
+3. Open Linewatch on the same Wi-Fi. Setup autocompletes your router. Connect
+   if it did not already.
 4. Safari (iPhone) or Chrome (Android) → Add to Home Screen. Alerts on.
 
 That is the whole watch. You do not install anything on the kids’ phones.
+The collector stays on when the phone sleeps.
 
 Details, including UniFi / Asus syslog if you already have a real router:
 **[SETUP.md](./SETUP.md)**. Phone pin: **[PHONE.md](./PHONE.md)**.
@@ -57,16 +60,18 @@ npm run collector    # on the always-on computer
 | Live | Person chips, Sidewalk vs WAN, adult highlights |
 | People | One profile per person — devices, IP, MAC, location-class hits, personal blocks |
 | House | Home firewall: monitor / blacklist / whitelist + site log |
-| Logs | Auto-archive repository, CSV, alerts |
+| Logs | Auto-archive repository (7-day overwrite), CSV, alerts |
 | Setup | Your house collector, phone install, DNS paste |
 
-Logs stay in this browser (`localStorage`) unless you download CSV.
+Logs stay in this browser (`localStorage`) unless you download CSV. The
+collector on the always-on computer is the week of house DNS.
 
 ## Honest limits
 
-A phone cannot sniff the router by itself. Sidewalk is tagged from Amazon /
-Ring / Tile **hosts**, not the 900 MHz radio. Location is a destination class,
-not GPS. Dest IP “region” is the **server**, not where your kid is standing.
+A phone cannot sniff the router by itself, and it cannot watch while closed.
+Sidewalk is tagged from Amazon / Ring / Tile **hosts**, not the 900 MHz radio.
+Location is a destination class, not GPS. Dest IP “region” is the **server**,
+not where your kid is standing.
 
 ## License
 

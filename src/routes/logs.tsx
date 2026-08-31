@@ -31,8 +31,8 @@ function LogsPage() {
           <div>
             <h1 className="text-2xl font-medium tracking-tight md:text-3xl">Logs</h1>
             <p className="mt-1 max-w-xl text-sm text-muted">
-              Live buffer auto-archives into a repository. Download any roll as CSV. Alerts sit with
-              the same desk.
+              Live buffer auto-archives into a repository. Rows older than 7 days are overwritten.
+              Download any roll as CSV. Alerts sit with the same desk.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

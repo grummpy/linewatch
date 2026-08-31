@@ -21,6 +21,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const running = useLinewatch((s) => s.running);
   const unacked = useLinewatch((s) => s.alerts.filter((a) => !a.acknowledged).length);
+  const lanProbe = useLinewatch((s) => s.lanProbe);
+  const collectorStatus = useLinewatch((s) => s.collectorStatus);
+  const discovering = useLinewatch((s) => s.discovering);
+  const subnet = collectorStatus?.gateway
+    ? `${collectorStatus.gateway.split(".").slice(0, 3).join(".")}.0/24`
+    : lanProbe?.subnet;
 
   return (
     <div className="flex min-h-dvh flex-col bg-bg text-fg md:flex-row">
@@ -62,7 +68,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <p className="px-5 py-5 text-[11px] text-subtle">LAN 192.168.1.0/24</p>
+        <p className="px-5 py-5 text-[11px] text-subtle">
+          {discovering ? "Finding router…" : subnet ? `LAN ${subnet}` : "This Wi-Fi"}
+        </p>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col pb-20 md:pb-0">

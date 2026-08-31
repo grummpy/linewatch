@@ -1,0 +1,22 @@
+# Linewatch collector — Chris Decker
+# Always-on house watch. Copy to /etc/systemd/system/linewatch.service
+# then: sudo systemctl enable --now linewatch
+#
+# The phone app can close. This service keeps DNS/syslog and 7-day logs.
+
+[Unit]
+Description=Linewatch house collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/linewatch
+ExecStart=/usr/bin/node /opt/linewatch/collector/linewatch-collector.mjs
+Restart=always
+RestartSec=5
+Environment=LINEWATCH_DNS_LOG=/var/log/pihole.log
+Environment=LINEWATCH_DATA=/var/lib/linewatch
+
+[Install]
+WantedBy=multi-user.target

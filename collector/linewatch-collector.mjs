@@ -17,12 +17,16 @@ import dgram from "node:dgram";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
+import path from "node:path";
 import { createInterface } from "node:readline";
 
 const HTTP_PORT = Number(process.env.LINEWATCH_PORT || 8787);
 const SYSLOG_PORT = Number(process.env.LINEWATCH_SYSLOG || 5514);
 const DNS_LOG = process.env.LINEWATCH_DNS_LOG || "";
-const MAX = 2000;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX = 20_000;
+const DATA_DIR = process.env.LINEWATCH_DATA || path.join(process.cwd(), "data");
+const EVENT_FILE = path.join(DATA_DIR, "events.jsonl");
 
 /** @typedef {{ ts: number, sourceIp: string, host: string, raw: string }} Event */
 
@@ -108,6 +112,50 @@ function parseQuery(text) {
   return null;
 }
 
+function pruneWeek(list, now = Date.now()) {
+  const cut = now - WEEK_MS;
+  return list.filter((e) => e.ts >= cut);
+}
+
+let persistTimer = null;
+function scheduleSave() {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(saveDisk, 500);
+}
+
+function loadDisk() {
+  try {
+    const text = fs.readFileSync(EVENT_FILE, "utf8");
+    const cut = Date.now() - WEEK_MS;
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const ev = JSON.parse(line);
+        if (ev && ev.ts >= cut && ev.host && ev.sourceIp) events.push(ev);
+      } catch {
+        /* skip bad line */
+      }
+    }
+    if (events.length > MAX) events.splice(0, events.length - MAX);
+    note(`Loaded ${events.length} queries from last 7 days`);
+  } catch {
+    /* first run */
+  }
+}
+
+function saveDisk() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const keep = pruneWeek(events);
+    events.length = 0;
+    events.push(...keep);
+    const body = keep.map((e) => JSON.stringify({ ts: e.ts, sourceIp: e.sourceIp, host: e.host })).join("\n");
+    fs.writeFileSync(EVENT_FILE, body ? `${body}\n` : "");
+  } catch (err) {
+    note(`Log save failed: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
 function pushEvent(partial, raw) {
   const host = (partial.host || "").replace(/\.$/, "");
   if (!host || host.length < 4) return;
@@ -119,6 +167,7 @@ function pushEvent(partial, raw) {
   };
   events.push(ev);
   if (events.length > MAX) events.splice(0, events.length - MAX);
+  scheduleSave();
 }
 
 function probeHttp(ip, port, timeoutMs = 1200) {
@@ -300,8 +349,8 @@ function htmlPage(state) {
     <p>This computer: <code>${state.lanIp || "—"}</code></p>
     <p>Router / gateway: <code>${state.gateway || "—"}</code> · ${state.router.label}</p>
     <p>Syslog UDP <code>${SYSLOG_PORT}</code> · API <code>http://${state.lanIp}:${HTTP_PORT}</code></p>
-    <p class="muted">In Linewatch on your phone, Setup → Your house → paste that API address → Connect.</p>
-    <p class="muted">On the router, send syslog or DNS query logs to <code>${state.lanIp}:${SYSLOG_PORT}</code>. Pi-hole: tail the query log with LINEWATCH_DNS_LOG.</p>
+    <p class="muted">Keep this computer on. Linewatch on your phone can close — this box still watches and keeps 7 days of logs (older rows are overwritten).</p>
+    <p class="muted">On the router, send syslog or DNS to <code>${state.lanIp}:${SYSLOG_PORT}</code>. Open Linewatch; it should find this collector on the Wi-Fi.</p>
   </div>
   <div class="card">
     <h2>Recent queries</h2>
@@ -332,6 +381,18 @@ async function main() {
   const ssdp = await ssdpDiscover();
   if (ssdp.length) note(`UPnP gateway ads: ${ssdp.slice(0, 3).join(" | ")}`);
 
+  loadDisk();
+  setInterval(() => {
+    const before = events.length;
+    const keep = pruneWeek(events);
+    if (keep.length !== before) {
+      events.length = 0;
+      events.push(...keep);
+      note(`Dropped logs older than 7 days (${before - keep.length} rows)`);
+    }
+    saveDisk();
+  }, 60 * 60 * 1000);
+
   listenSyslog(SYSLOG_PORT);
   if (DNS_LOG) tailFile(DNS_LOG);
 
@@ -346,6 +407,8 @@ async function main() {
     httpPort: HTTP_PORT,
     eventCount: events.length,
     listening: true,
+    alwaysOn: true,
+    retentionDays: 7,
   });
 
   const server = http.createServer((req, res) => {

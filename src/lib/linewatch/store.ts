@@ -8,7 +8,16 @@ import { playAlertTone, playWatchTone } from "./audio";
 import { HOUSEHOLD } from "./catalog";
 import { destRegionFor, parseLogLine } from "./classify";
 import { newId } from "./format";
-import { fetchCollectorStatus, normalizeCollectorUrlExport, probeLan as probeLanNet, pullCollectorEvents, type CollectorStatus, type LanProbe } from "./lan";
+import {
+  collectorUrlSuggestions,
+  discoverCollector,
+  fetchCollectorStatus,
+  normalizeCollectorUrlExport,
+  probeLan as probeLanNet,
+  pullCollectorEvents,
+  type CollectorStatus,
+  type LanProbe,
+} from "./lan";
 import { eventsToArchiveRows } from "./selectors";
 import { adultSample, eventFromLog, generateHistory, randomEvent } from "./simulate";
 import {
@@ -24,11 +33,21 @@ import {
 
 export type HouseSource = "demo" | "house";
 
-const STORAGE_KEY = "linewatch-v2";
+const STORAGE_KEY = "linewatch-v3";
 const MAX_EVENTS = 800;
 const MAX_ALERTS = 200;
 const MAX_ARCHIVES = 24;
 const ARCHIVE_EVERY = 50;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function pruneWeek<T extends { ts?: number; createdAt?: number }>(rows: T[], now: number): T[] {
+  const cut = now - WEEK_MS;
+  return rows.filter((r) => (r.ts ?? r.createdAt ?? 0) >= cut);
+}
+
+function isLoopbackUrl(url: string): boolean {
+  return /127\.0\.0\.1|localhost/i.test(url);
+}
 
 type Persisted = {
   devices: Device[];
@@ -58,6 +77,8 @@ type LinewatchState = {
   collectorUrl: string;
   collectorStatus: CollectorStatus | null;
   lanProbe: LanProbe | null;
+  discovering: boolean;
+  suggestedUrls: string[];
   hydrate: () => void;
   start: () => void;
   stop: () => void;
@@ -83,6 +104,7 @@ type LinewatchState = {
   connectCollector: (url?: string) => Promise<CollectorStatus>;
   disconnectCollector: () => void;
   useDemoHouse: () => void;
+  autoJoinHouse: () => Promise<void>;
 };
 
 let tick: ReturnType<typeof setInterval> | null = null;
@@ -105,9 +127,9 @@ function persist(
   const payload: Persisted = {
     devices: state.devices,
     rules: state.rules,
-    events: state.events.slice(-500),
-    alerts: state.alerts.slice(0, 120),
-    archives: state.archives.slice(0, MAX_ARCHIVES),
+    events: pruneWeek(state.events, Date.now()).slice(-500),
+    alerts: pruneWeek(state.alerts, Date.now()).slice(0, 120),
+    archives: pruneWeek(state.archives, Date.now()).slice(0, MAX_ARCHIVES),
     houseSource: state.houseSource,
     collectorUrl: state.collectorUrl,
   };
@@ -190,6 +212,17 @@ function buildArchive(events: TrafficEvent[], devices: Device[], now: number): A
   };
 }
 
+function seedDemo(devices: Device[], rules: Rules, now: number) {
+  const events = generateHistory(devices, rules, now);
+  const alerts = events
+    .filter((e) => e.risk === "alert" || e.risk === "watch")
+    .slice(-40)
+    .reverse()
+    .map((e) => ({ ...alertFromEvent(e), acknowledged: e.ts < now - 30 * 60_000 }));
+  const seed = buildArchive(events, devices, now);
+  return { events, alerts, archives: seed ? [seed] : ([] as Archive[]) };
+}
+
 function ingestEvent(
   set: (fn: (s: LinewatchState) => Partial<LinewatchState> | LinewatchState) => void,
   get: () => LinewatchState,
@@ -252,6 +285,8 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   collectorUrl: "",
   collectorStatus: null,
   lanProbe: null,
+  discovering: false,
+  suggestedUrls: [],
 
   hydrate: () => {
     if (get().ready) return;
@@ -285,8 +320,10 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
             houseAllowlist: saved.rules.houseAllowlist ?? DEFAULT_RULES.houseAllowlist,
           };
         }
-        if (Array.isArray(saved.events) && saved.events.length > 40) {
-          events = saved.events.map(normalizeEvent);
+        if (Array.isArray(saved.events) && saved.events.length) {
+          if (saved.houseSource === "house" || saved.events.length > 40) {
+            events = saved.events.map(normalizeEvent);
+          }
         }
         if (Array.isArray(saved.alerts)) alerts = saved.alerts;
         if (Array.isArray(saved.archives)) archives = saved.archives;
@@ -296,16 +333,20 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     } catch {
       /* fresh */
     }
-    if (houseSource !== "house" && events.length < 40) {
-      events = generateHistory(devices, rules, now);
-      alerts = events
-        .filter((e) => e.risk === "alert" || e.risk === "watch")
-        .slice(-40)
-        .reverse()
-        .map((e) => ({ ...alertFromEvent(e), acknowledged: e.ts < now - 30 * 60_000 }));
-      const seed = buildArchive(events, devices, now);
-      if (seed) archives = [seed];
+    // Loopback was a same-computer test. A phone never talks to its own loopback.
+    if (isLoopbackUrl(collectorUrl)) {
+      collectorUrl = "";
+      houseSource = "demo";
     }
+    if (houseSource !== "house" && events.length < 40) {
+      const seeded = seedDemo(devices, rules, now);
+      events = seeded.events;
+      alerts = seeded.alerts;
+      archives = seeded.archives;
+    }
+    events = pruneWeek(events, now);
+    alerts = pruneWeek(alerts, now);
+    archives = pruneWeek(archives, now);
     set({
       ready: true,
       now,
@@ -321,6 +362,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
 
   start: () => {
     get().hydrate();
+    void get().autoJoinHouse();
     if (get().running) return;
     set({ running: true });
     tick = setInterval(() => {
@@ -336,12 +378,17 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     }, 1800);
 
     archiveTick = setInterval(() => {
+      const s = get();
+      const now = Date.now();
+      const events = pruneWeek(s.events, now);
+      const alerts = pruneWeek(s.alerts, now);
+      const archives = pruneWeek(s.archives, now);
+      if (events.length !== s.events.length || alerts.length !== s.alerts.length) {
+        set({ events, alerts, archives, now });
+        schedulePersist(get);
+      }
       if (sinceArchive >= 8) get().flushArchive();
     }, 180_000);
-
-    if (get().houseSource === "house" && get().collectorUrl) {
-      void get().connectCollector(get().collectorUrl);
-    }
 
     if (!sessionAlerted) {
       firstAlertTimer = setTimeout(() => {
@@ -547,12 +594,24 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     const target = normalizeCollectorUrlExport(url ?? get().collectorUrl);
     set({ collectorUrl: target });
     const status = await fetchCollectorStatus(target);
-    set({ collectorStatus: status });
+    const lan = get().lanProbe;
+    const gateway = status.gateway || lan?.likelyGateway || "";
+    const prefix = gateway ? gateway.split(".").slice(0, 3).join(".") : "";
+    set({
+      collectorStatus: status,
+      lanProbe: gateway
+        ? { ips: lan?.ips ?? [], likelyGateway: gateway, subnet: `${prefix}.0/24` }
+        : lan,
+    });
     if (!status.ok) {
       schedulePersist(get);
       return status;
     }
-    collectorSince = Date.now() - 60_000;
+    // Chris Decker: drop the demo family so Live is this week's real house traffic.
+    if (get().houseSource !== "house") {
+      set({ events: [], alerts: [], archives: [], houseSource: "house" });
+    }
+    collectorSince = Date.now() - WEEK_MS;
     if (collectorTick) clearInterval(collectorTick);
     const pull = async () => {
       try {
@@ -599,7 +658,47 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   useDemoHouse: () => {
     if (collectorTick) clearInterval(collectorTick);
     collectorTick = null;
-    set({ houseSource: "demo", collectorStatus: null });
+    const s = get();
+    const now = Date.now();
+    if (s.events.length < 40) {
+      const seeded = seedDemo(s.devices, s.rules, now);
+      set({
+        houseSource: "demo",
+        collectorStatus: null,
+        events: seeded.events,
+        alerts: seeded.alerts,
+        archives: seeded.archives,
+        now,
+      });
+    } else {
+      set({ houseSource: "demo", collectorStatus: null });
+    }
     schedulePersist(get);
+  },
+
+  autoJoinHouse: async () => {
+    if (get().discovering) return;
+    set({ discovering: true });
+    try {
+      const lan = await probeLanNet();
+      const saved = get().collectorUrl;
+      const suggestions = collectorUrlSuggestions(lan, saved);
+      const filled = saved || suggestions[0] || "";
+      set({
+        lanProbe: lan,
+        suggestedUrls: suggestions.slice(0, 20),
+        collectorUrl: filled,
+      });
+      const found = await discoverCollector(lan, saved);
+      if (found) {
+        set({
+          suggestedUrls: [found.url, ...suggestions.filter((u) => u !== found.url)].slice(0, 20),
+          collectorUrl: found.url,
+        });
+        await get().connectCollector(found.url);
+      }
+    } finally {
+      set({ discovering: false });
+    }
   },
 }));

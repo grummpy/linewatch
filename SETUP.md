@@ -6,6 +6,9 @@ computer on your Wi-Fi, send DNS there, and read it in Linewatch on your phone.
 You do **not** install an App Store app on the kids’ phones. You watch what
 leaves the **router**.
 
+The phone can close. The collector computer stays on, keeps writing, and
+**overwrites logs older than 7 days**.
+
 ---
 
 ## The simple path (recommended if you have kids)
@@ -44,15 +47,32 @@ LINEWATCH_DNS_LOG=/var/log/pihole.log npm run collector
 
 It prints this computer’s IP and the router/gateway it found.
 
-Leave that window running.
+Leave that window running, or install the always-on service so it survives reboot:
 
-### 3. Connect Linewatch
+```bash
+sudo mkdir -p /opt/linewatch /var/lib/linewatch
+sudo cp -R . /opt/linewatch
+sudo cp collector/linewatch.service /etc/systemd/system/linewatch.service
+sudo systemctl enable --now linewatch
+```
+
+Mac: keep Terminal open, or add `npm run collector` as a Login Item.
+
+The **phone can close**. This computer is the watch. Logs older than **7 days** are overwritten.
+
+### 3. Open Linewatch — it finds the router
+
+On a phone on the **same Wi-Fi**, open Linewatch. Setup fills in your router
+(.1) and looks for the collector on this network. If it does not connect by
+itself, tap **Find my router**, then **Connect**.
+
+If you also run the desk from that computer:
 
 ```bash
 npm run dev
 ```
 
-Open Linewatch → **Setup → Your house** → paste `http://THAT_IP:8787` → **Connect**.
+then open Linewatch → **Setup**. It should say **Watching**.
 
 The demo family (Riley, Sam, …) stops. Live is **your** LAN: device IP, site,
 time, Sidewalk vs WAN, adult hits.
@@ -77,7 +97,7 @@ Skip Pi-hole. Run the collector and send **syslog** to it (UDP 5514):
 | OpenWrt / pfSense / OPNsense | remote syslog server |
 | Firewalla | already logs DNS — export or syslog |
 
-Then Connect the same way.
+Then open Linewatch on the same Wi-Fi. It autocompletes the collector.
 
 ---
 
@@ -88,6 +108,7 @@ Then Connect the same way.
 - **Location** means Maps / Weather / Apple Location, not a GPS pin
 - You will **not** get packet payloads, passwords, or camera video
 - A phone alone cannot tap the WAN. The collector + DNS/syslog is the line.
+- Closing the app does **not** stop the watch. The collector computer does.
 
 Assign devices to people under **People** (name, role: child / parent). Block a
 site for one kid or for the whole house under **House**.
@@ -99,7 +120,7 @@ site for one kid or for the whole house under **House**.
 ```bash
 npm install
 npm run dev          # the desk
-npm run collector    # finds the gateway, takes DNS/syslog
+npm run collector    # finds the gateway, takes DNS/syslog, keeps 7 days
 ```
 
 Paste a Pi-hole / dnsmasq line if you do not want the collector yet:

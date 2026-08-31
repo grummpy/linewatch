@@ -2,36 +2,37 @@
  * Linewatch — household outbound watch
  * Copyright (c) 2026 Chris Decker
  *
- * House hookup: find this phone's LAN, connect Chris Decker's collector,
- * and switch the desk from the demo family to real kids' traffic.
+ * One-screen house setup: autocomplete the router, find the collector
+ * on this Wi-Fi, keep watching after the phone is closed (7-day logs).
  */
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLinewatch } from "@/lib/linewatch/store";
+
+const COLLECTOR_CMD = "npm run collector";
 
 export function HouseConnect() {
   const houseSource = useLinewatch((s) => s.houseSource);
   const collectorUrl = useLinewatch((s) => s.collectorUrl);
   const collectorStatus = useLinewatch((s) => s.collectorStatus);
   const lanProbe = useLinewatch((s) => s.lanProbe);
-  const probeLan = useLinewatch((s) => s.probeLan);
+  const discovering = useLinewatch((s) => s.discovering);
+  const suggestedUrls = useLinewatch((s) => s.suggestedUrls);
+  const autoJoinHouse = useLinewatch((s) => s.autoJoinHouse);
   const setCollectorUrl = useLinewatch((s) => s.setCollectorUrl);
   const connectCollector = useLinewatch((s) => s.connectCollector);
-  const disconnectCollector = useLinewatch((s) => s.disconnectCollector);
   const useDemoHouse = useLinewatch((s) => s.useDemoHouse);
-  const ingestNote = useLinewatch((s) => s.ingestNote);
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState(collectorUrl);
-
-  useEffect(() => {
-    void probeLan();
-  }, [probeLan]);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setUrl(collectorUrl);
   }, [collectorUrl]);
 
   const live = houseSource === "house" && collectorStatus?.ok;
+  const routerIp = collectorStatus?.gateway || lanProbe?.likelyGateway || "";
+  const prefix = routerIp ? routerIp.split(".").slice(0, 3).join(".") : "";
 
   return (
     <section className="rounded-lg bg-surface p-4 shadow-[var(--shadow-border)] md:p-5">
@@ -39,44 +40,51 @@ export function HouseConnect() {
         <div>
           <h2 className="text-sm font-medium">Your house</h2>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-            A phone cannot tap the router by itself. Run the Linewatch collector on a computer that
-            stays on this Wi-Fi. It finds the gateway and takes DNS/syslog the router sends it.
+            Opens onto your router. One always-on computer collects the line. This phone can close.
+            Logs overwrite after 7 days.
           </p>
         </div>
         <span className="font-mono text-[11px] tracking-wide text-subtle uppercase">
-          {live ? "House line" : houseSource === "house" ? "House · collector down" : "Demo household"}
+          {discovering ? "Finding router…" : live ? "Watching" : houseSource === "house" ? "Collector off" : "Not connected"}
         </span>
       </div>
 
-      <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-        <div className="rounded-md bg-elevated px-3 py-3">
-          <dt className="text-[11px] tracking-wide text-subtle uppercase">This device</dt>
-          <dd className="mt-1 font-mono text-xs">
-            {lanProbe?.ips[0] ?? "Probing LAN…"}
-            {lanProbe?.subnet ? <span className="text-muted"> · {lanProbe.subnet}</span> : null}
-          </dd>
-        </div>
-        <div className="rounded-md bg-elevated px-3 py-3">
-          <dt className="text-[11px] tracking-wide text-subtle uppercase">Likely router</dt>
-          <dd className="mt-1 font-mono text-xs">
-            {collectorStatus?.gateway || lanProbe?.likelyGateway || "—"}
-            {collectorStatus?.router?.label ? (
-              <span className="mt-1 block text-muted">{collectorStatus.router.label}</span>
-            ) : (
-              <span className="mt-1 block text-muted">Usually .1 on your subnet. Confirm in a browser.</span>
-            )}
-          </dd>
-        </div>
-      </dl>
+      <div className="mt-4 rounded-md bg-elevated px-4 py-4">
+        <p className="text-[11px] tracking-wide text-subtle uppercase">Router</p>
+        <p className="mt-1 font-mono text-xl tabular">{routerIp || (discovering ? "…" : "Not on Wi-Fi yet")}</p>
+        {collectorStatus?.router?.label ? (
+          <p className="mt-1 text-xs text-muted">{collectorStatus.router.label}</p>
+        ) : lanProbe?.subnet ? (
+          <p className="mt-1 text-xs text-muted">{lanProbe.subnet} · usually .1</p>
+        ) : null}
+      </div>
 
-      <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-muted">
-        <li>
-          On a Mac, PC, or Pi on this Wi-Fi:{" "}
-          <span className="font-mono text-xs text-fg">node collector/linewatch-collector.mjs</span>
-        </li>
-        <li>It prints this computer’s LAN IP and a router guess. Point the router’s syslog or DNS log at that IP, UDP 5514.</li>
-        <li>Paste the collector URL below and Connect. Live hits then come from your LAN, not the demo family.</li>
-      </ol>
+      {live ? (
+        <p className="mt-4 text-sm text-ok">
+          Collector on {collectorStatus.lanIp || collectorUrl}. {collectorStatus.eventCount ?? 0}{" "}
+          queries this week. Close the phone — this computer still watches. Older than 7 days is
+          overwritten.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-3 text-sm text-muted">
+          <p>
+            On a Pi, Mac, or PC that stays on:{" "}
+            <button
+              type="button"
+              className="font-mono text-xs text-fg"
+              onClick={() => {
+                void navigator.clipboard?.writeText(COLLECTOR_CMD);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              {COLLECTOR_CMD}
+            </button>
+            {copied ? <span className="ml-2 text-ok">copied</span> : null}
+          </p>
+          <p>Point house DNS (Pi-hole) or router syslog at that computer. Open this app — it fills the address in.</p>
+        </div>
+      )}
 
       <form
         className="mt-4 flex flex-col gap-2 sm:flex-row"
@@ -90,62 +98,36 @@ export function HouseConnect() {
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="http://192.168.1.12:8787"
+          list="linewatch-collectors"
+          placeholder={prefix ? `http://${prefix}.10:8787` : "Collector address on this Wi-Fi"}
+          autoComplete="on"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           className="h-11 min-w-0 flex-1 rounded-sm bg-elevated px-3 font-mono text-sm shadow-[var(--shadow-border)]"
         />
-        <Button type="submit" className="h-11" disabled={busy}>
-          {busy ? "Connecting…" : "Connect"}
+        <datalist id="linewatch-collectors">
+          {suggestedUrls.map((u) => (
+            <option key={u} value={u} />
+          ))}
+        </datalist>
+        <Button type="submit" className="h-11" disabled={busy || discovering}>
+          {busy || discovering ? "Finding…" : live ? "Reconnect" : "Connect"}
         </Button>
       </form>
 
-      {collectorStatus?.ok ? (
-        <p className="mt-3 text-sm text-ok">
-          Collector live{collectorStatus.lanIp ? ` on ${collectorStatus.lanIp}` : ""}.{" "}
-          {collectorStatus.eventCount ?? 0} queries buffered. Syslog UDP {collectorStatus.syslogPort ?? 5514}.
-        </p>
-      ) : collectorStatus?.error ? (
-        <p className="mt-3 text-sm text-danger">{collectorStatus.error}</p>
-      ) : null}
-      {ingestNote ? <p className="mt-2 text-xs text-muted">{ingestNote}</p> : null}
+      {collectorStatus?.error && !live ? <p className="mt-3 text-sm text-danger">{collectorStatus.error}</p> : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={() => void probeLan()}>
-          Probe this LAN
+        <Button size="sm" variant="outline" onClick={() => void autoJoinHouse()} disabled={discovering}>
+          Find my router
         </Button>
         {houseSource === "house" ? (
-          <>
-            <Button size="sm" variant="ghost" onClick={disconnectCollector}>
-              Disconnect collector
-            </Button>
-            <Button size="sm" variant="ghost" onClick={useDemoHouse}>
-              Back to demo household
-            </Button>
-          </>
+          <Button size="sm" variant="ghost" onClick={useDemoHouse}>
+            Demo household
+          </Button>
         ) : null}
       </div>
-
-      <details className="mt-4 text-sm">
-        <summary className="cursor-pointer text-muted">Router recipes</summary>
-        <ul className="mt-3 space-y-2 text-muted">
-          <li>
-            <span className="text-fg">Pi-hole</span> — query log on. Run the collector with{" "}
-            <span className="font-mono text-xs">LINEWATCH_DNS_LOG=/var/log/pihole.log</span>
-          </li>
-          <li>
-            <span className="text-fg">UniFi</span> — Settings → System → syslog to the collector IP, port 5514
-          </li>
-          <li>
-            <span className="text-fg">Asus / Merlin</span> — System log → forwarding to the collector IP
-          </li>
-          <li>
-            <span className="text-fg">OpenWrt / pfSense</span> — system log remote server = collector IP
-          </li>
-          <li>
-            <span className="text-fg">eero, Nest, ISP gateway</span> — most cannot syslog. Put Pi-hole or this
-            collector machine as DNS for the house, then tail that DNS log.
-          </li>
-        </ul>
-      </details>
     </section>
   );
 }
