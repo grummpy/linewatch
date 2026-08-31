@@ -7,10 +7,10 @@ import {
   classifyHost,
   destRegionFor,
   ipForHost,
-  isEventBlocked,
   pathFor,
   riskFor,
 } from "./classify";
+import { decideDns } from "./policy";
 import { newId } from "./format";
 import type { Category, Device, Destination, Protocol, Rules, TrafficEvent } from "./types";
 
@@ -134,33 +134,44 @@ export function makeEvent(opts: {
   const rng = opts.rng ?? Math.random;
   const { protocol, port } = protocolFor(opts.dest.category, rng);
   const destIp = ipForHost(opts.dest.host);
-  const blocked = isEventBlocked({ host: opts.dest.host, device: opts.device, rules: opts.rules });
-  const risk = blocked
-    ? "ok"
-    : riskFor({
-        category: opts.dest.category,
-        role: opts.device.role,
-        ts: opts.ts,
-        rules: opts.rules,
-      });
+  const decision = decideDns({
+    host: opts.dest.host,
+    device: opts.device,
+    rules: opts.rules,
+    ts: opts.ts,
+    category: opts.dest.category,
+  });
+  const blocked = decision.action === "blocked";
+  const risk = riskFor({
+    category: decision.category,
+    role: opts.device.role,
+    ts: opts.ts,
+    rules: opts.rules,
+    reason: decision.reason,
+    blocked,
+  });
   return {
     id: newId("ev"),
     ts: opts.ts,
     deviceId: opts.device.id,
     owner: opts.device.owner,
     sourceIp: opts.device.ip,
-    destIp,
+    destIp: decision.rewriteIp || destIp,
     destHost: opts.dest.host,
     destLabel: opts.dest.label,
     destPort: port,
     destRegion: destRegionFor(destIp),
     protocol,
-    category: opts.dest.category,
+    category: decision.category,
     path: pathFor(opts.dest),
     locationHint: opts.dest.locationHint ?? null,
     bytes: bytesFor(opts.dest.category, rng),
-    risk: blocked ? "ok" : risk,
+    risk,
     blocked,
+    action: decision.action,
+    reason: decision.reason,
+    entropy: decision.entropy,
+    mac: opts.device.mac,
   };
 }
 
@@ -205,6 +216,44 @@ export function generateHistory(devices: Device[], rules: Rules, now: number): T
     }
   }
   events.sort((a, b) => a.ts - b.ts);
+  const vpnDests = BY_CAT.vpn ?? [];
+  if (kids.length && adultDests.length) {
+    const hammer = kids[0]!;
+    for (let i = 0; i < 4; i++) {
+      events.push(
+        makeEvent({
+          device: hammer,
+          dest: adultDests[0]!,
+          ts: now - (2 + i) * 60_000,
+          rules,
+          rng,
+        }),
+      );
+    }
+  }
+  if (kids.length && vpnDests.length) {
+    events.push(
+      makeEvent({
+        device: kids[0]!,
+        dest: vpnDests[0]!,
+        ts: now - 90_000,
+        rules,
+        rng,
+      }),
+    );
+  }
+  if (kids.length) {
+    events.push(
+      makeEvent({
+        device: kids[kids.length - 1]!,
+        dest: { host: "x7q9k2m1p0w8.biz", category: "unknown", label: "Random name" },
+        ts: now - 50_000,
+        rules,
+        rng,
+      }),
+    );
+  }
+  events.sort((a, b) => a.ts - b.ts);
   return events.slice(-700);
 }
 
@@ -239,6 +288,71 @@ export function eventFromLog(opts: {
       lastSeen: opts.ts,
     } satisfies Device);
   return makeEvent({ device, dest, ts: opts.ts, rules: opts.rules });
+}
+
+/** Honor the house DNS decision instead of re-deciding in the phone. */
+export function eventFromCollector(opts: {
+  host: string;
+  sourceIp: string;
+  ts: number;
+  mac?: string;
+  category?: Category;
+  action?: "allowed" | "blocked" | "rewritten";
+  reason?: string;
+  entropy?: number;
+  owner?: string;
+  devices: Device[];
+  rules: Rules;
+}): TrafficEvent {
+  const dest = classifyHost(opts.host);
+  const mac = (opts.mac || "").toLowerCase();
+  const device =
+    opts.devices.find((d) => (mac && d.mac.toLowerCase() === mac) || d.ip === opts.sourceIp) ??
+    ({
+      id: `dev-unknown-${opts.sourceIp.replace(/\./g, "-")}`,
+      name: `Unknown · ${opts.sourceIp}`,
+      owner: opts.owner || "Unknown",
+      role: "shared" as const,
+      ip: opts.sourceIp,
+      mac: opts.mac || "—",
+      kind: "iot" as const,
+      blocked: false,
+      lastSeen: opts.ts,
+    } satisfies Device);
+  const base = makeEvent({ device, dest, ts: opts.ts, rules: opts.rules });
+  const action = opts.action ?? base.action ?? "allowed";
+  const reason = opts.reason ?? base.reason;
+  const category = opts.category ?? base.category;
+  const blocked = action === "blocked";
+  const destIp = blocked ? "0.0.0.0" : action === "rewritten" && reason === "safe-search" ? destIpForSafeSearch(opts.host) : base.destIp;
+  return {
+    ...base,
+    owner: opts.owner || device.owner,
+    mac: opts.mac || device.mac,
+    category,
+    action,
+    reason,
+    blocked,
+    destIp,
+    entropy: opts.entropy ?? base.entropy,
+    risk: riskFor({
+      category,
+      role: device.role,
+      ts: opts.ts,
+      rules: opts.rules,
+      reason,
+      blocked,
+    }),
+  };
+}
+
+function destIpForSafeSearch(host: string): string {
+  const h = host.replace(/^www\./, "").toLowerCase();
+  if (h === "google.com" || h.endsWith(".google.com")) return "216.239.38.120";
+  if (h === "youtube.com" || h.endsWith(".youtube.com")) return "216.239.38.119";
+  if (h === "bing.com" || h.endsWith(".bing.com")) return "204.79.197.200";
+  if (h === "duckduckgo.com") return "52.250.42.157";
+  return "0.0.0.0";
 }
 
 export { HOUSEHOLD };

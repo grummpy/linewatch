@@ -31,6 +31,7 @@ export function visibleEvents(
     if (filter === "sidewalk") return e.path === "sidewalk";
     if (filter === "wan") return e.path === "wan";
     if (filter === "location") return Boolean(e.locationHint);
+    if (filter === "vpn") return e.category === "vpn";
     return true;
   });
 }

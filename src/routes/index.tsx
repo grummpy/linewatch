@@ -31,7 +31,7 @@ function Home() {
             <h1 className="text-2xl font-medium tracking-tight md:text-3xl">Live</h1>
             <p className="mt-1 max-w-xl text-sm text-muted">
               {live
-                ? "Your house. Collector keeps watching when this phone is closed. Logs last 7 days."
+                ? "Your house. This computer is DNS. The phone can close. Logs last 7 days."
                 : discovering
                   ? "Looking for your router on this Wi-Fi…"
                   : "Opens looking for your router. Connect once — the collector computer does the rest."}

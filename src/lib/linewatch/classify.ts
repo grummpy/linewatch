@@ -3,8 +3,8 @@
  * Copyright (c) 2026 Chris Decker
  */
 import { DESTINATIONS } from "./catalog";
+import { decideDns } from "./policy";
 import type { Category, Destination, Device, PathKind, Risk, Rules } from "./types";
-import { SYSTEM_HOSTS } from "./types";
 
 const SORTED = [...DESTINATIONS].sort((a, b) => b.host.length - a.host.length);
 
@@ -100,10 +100,14 @@ export function riskFor(opts: {
   role: "parent" | "child" | "shared" | "iot";
   ts: number;
   rules: Rules;
+  reason?: string;
+  blocked?: boolean;
 }): Risk {
-  const { category, role, ts, rules } = opts;
-  // Chris Decker: adult is an alert only on child-role devices, not parents.
-  if (category === "adult" && rules.alertAdult && role === "child") return "alert";
+  const { category, role, ts, rules, reason, blocked } = opts;
+  if (category === "adult" && rules.alertAdult && (role === "child" || role === "shared")) return "alert";
+  if (category === "vpn" && role === "child") return "alert";
+  if (reason === "dga-entropy" || reason === "quarantine") return "alert";
+  if (blocked && (reason === "homework" || reason === "bedtime")) return "watch";
   if (
     category === "social" &&
     role === "child" &&
@@ -123,19 +127,16 @@ export function hostOnBlocklist(host: string, blocklist: string[]): boolean {
   });
 }
 
-export function isEventBlocked(opts: { host: string; device: Device; rules: Rules }): boolean {
-  const { host, device, rules } = opts;
-  if (device.blocked) return true;
-  const person = rules.personBlocks[device.owner] ?? [];
-  if (hostOnBlocklist(host, person)) return true;
-  if (rules.firewallMode === "whitelist") {
-    const allow = [
-      ...rules.houseAllowlist,
-      ...(rules.keepSystemUpdates ? SYSTEM_HOSTS : []),
-    ];
-    return !hostOnBlocklist(host, allow);
-  }
-  return hostOnBlocklist(host, rules.blocklist);
+export function isEventBlocked(opts: { host: string; device: Device; rules: Rules; ts?: number; category?: Category }): boolean {
+  const dest = classifyHost(opts.host);
+  const decision = decideDns({
+    host: opts.host,
+    device: opts.device,
+    rules: opts.rules,
+    ts: opts.ts ?? Date.now(),
+    category: opts.category ?? dest.category,
+  });
+  return decision.action === "blocked";
 }
 
 const DNS_QUERY =

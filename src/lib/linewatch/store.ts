@@ -9,6 +9,8 @@ import { HOUSEHOLD } from "./catalog";
 import { destRegionFor, parseLogLine } from "./classify";
 import { newId } from "./format";
 import {
+  collectorGet,
+  collectorPost,
   collectorUrlSuggestions,
   discoverCollector,
   fetchCollectorStatus,
@@ -18,22 +20,27 @@ import {
   type CollectorStatus,
   type LanProbe,
 } from "./lan";
+import { autoQuarantineOn, rulesToCollectorPolicy, sentenceForEvent } from "./policy";
 import { eventsToArchiveRows } from "./selectors";
-import { adultSample, eventFromLog, generateHistory, randomEvent } from "./simulate";
+import { adultSample, eventFromCollector, eventFromLog, generateHistory, randomEvent } from "./simulate";
 import {
   DEFAULT_RULES,
   type Alert,
   type Archive,
+  type Category,
   type Device,
   type FeedFilter,
+  type InsightReport,
   type PathKind,
   type Rules,
+  type ScanFinding,
+  type ScanReport,
   type TrafficEvent,
 } from "./types";
 
 export type HouseSource = "demo" | "house";
 
-const STORAGE_KEY = "linewatch-v3";
+const STORAGE_KEY = "linewatch-v5";
 const MAX_EVENTS = 800;
 const MAX_ALERTS = 200;
 const MAX_ARCHIVES = 24;
@@ -79,6 +86,8 @@ type LinewatchState = {
   lanProbe: LanProbe | null;
   discovering: boolean;
   suggestedUrls: string[];
+  scan: ScanReport;
+  insights: InsightReport | null;
   hydrate: () => void;
   start: () => void;
   stop: () => void;
@@ -105,6 +114,11 @@ type LinewatchState = {
   disconnectCollector: () => void;
   useDemoHouse: () => void;
   autoJoinHouse: () => Promise<void>;
+  approveHost: (host: string) => void;
+  isolateDevice: (id: string, reason?: string) => void;
+  releaseQuarantine: (id: string) => void;
+  setProfileQuarantine: (owner: string, on: boolean) => void;
+  runScan: () => Promise<void>;
 };
 
 let tick: ReturnType<typeof setInterval> | null = null;
@@ -156,12 +170,23 @@ function schedulePersist(get: () => LinewatchState) {
   }, 400);
 }
 
+function pushPolicy(get: () => LinewatchState) {
+  const s = get();
+  if (s.houseSource !== "house" || !s.collectorUrl) return;
+  const lanIp = s.collectorStatus?.lanIp || s.lanProbe?.likelyGateway || "";
+  const prefix = lanIp.split(".").slice(0, 3).join(".");
+  const devices = prefix
+    ? s.devices.filter((d) => d.ip.startsWith(`${prefix}.`) || Boolean(d.quarantined))
+    : s.devices;
+  void collectorPost(s.collectorUrl, "/policy", rulesToCollectorPolicy(s.rules, devices));
+}
+
 function maybeNotify(alert: Alert, deviceName: string, enabled: boolean) {
   if (!enabled || typeof Notification === "undefined") return;
   if (Notification.permission !== "granted") return;
   try {
-    new Notification("Linewatch · Adult content", {
-      body: `${deviceName} · ${alert.host} · ${alert.sourceIp} → ${alert.destIp}`,
+    new Notification("Linewatch", {
+      body: alert.sentence || `${deviceName} · ${alert.host}`,
       tag: alert.id,
     });
   } catch {
@@ -169,7 +194,19 @@ function maybeNotify(alert: Alert, deviceName: string, enabled: boolean) {
   }
 }
 
-function alertFromEvent(event: TrafficEvent): Alert {
+function kindFor(event: TrafficEvent): Alert["kind"] {
+  if (event.reason === "quarantine") return "quarantine";
+  if (event.reason === "dga-entropy") return "dga";
+  if (event.reason === "vpn-doh" || event.category === "vpn") return "vpn";
+  if (event.reason === "homework") return "homework";
+  if (event.reason === "bedtime") return "bedtime";
+  if (event.category === "adult") return "adult";
+  return "watch";
+}
+
+function alertFromEvent(event: TrafficEvent, extras?: { count?: number; deviceName?: string }): Alert {
+  const kind = kindFor(event);
+  const high = kind === "adult" || kind === "vpn" || kind === "dga" || kind === "quarantine" || kind === "repeat";
   return {
     id: newId("al"),
     eventId: event.id,
@@ -181,7 +218,17 @@ function alertFromEvent(event: TrafficEvent): Alert {
     sourceIp: event.sourceIp,
     label: event.destLabel,
     acknowledged: false,
-    severity: event.risk === "alert" ? "high" : "medium",
+    severity: high || event.risk === "alert" ? "high" : "medium",
+    kind,
+    count: extras?.count,
+    sentence: sentenceForEvent({
+      owner: event.owner,
+      host: event.destHost,
+      category: event.category,
+      reason: event.reason,
+      count: extras?.count,
+      deviceName: extras?.deviceName,
+    }),
   };
 }
 
@@ -215,12 +262,37 @@ function buildArchive(events: TrafficEvent[], devices: Device[], now: number): A
 function seedDemo(devices: Device[], rules: Rules, now: number) {
   const events = generateHistory(devices, rules, now);
   const alerts = events
-    .filter((e) => e.risk === "alert" || e.risk === "watch")
+    .filter((e) => e.risk === "alert" || e.risk === "watch" || (e.blocked && (e.category === "adult" || e.category === "vpn")))
     .slice(-40)
     .reverse()
     .map((e) => ({ ...alertFromEvent(e), acknowledged: e.ts < now - 30 * 60_000 }));
   const seed = buildArchive(events, devices, now);
-  return { events, alerts, archives: seed ? [seed] : ([] as Archive[]) };
+  const hammer = devices.find((d) => d.role === "child");
+  const nextDevices = hammer
+    ? devices.map((d) =>
+        d.id === hammer.id
+          ? { ...d, quarantined: true, quarantineReason: "repeated high-severity blocks" }
+          : d,
+      )
+    : devices;
+  if (hammer) {
+    alerts.unshift({
+      id: newId("al"),
+      eventId: events[events.length - 1]?.id ?? "ev-q",
+      ts: now,
+      deviceId: hammer.id,
+      category: "adult",
+      host: "pornhub.com",
+      destIp: "0.0.0.0",
+      sourceIp: hammer.ip,
+      label: hammer.name,
+      acknowledged: false,
+      severity: "high",
+      kind: "quarantine",
+      sentence: `${hammer.name} was isolated after repeated high-severity hits. Review and release.`,
+    });
+  }
+  return { events, alerts, archives: seed ? [seed] : ([] as Archive[]), devices: nextDevices };
 }
 
 function ingestEvent(
@@ -236,12 +308,20 @@ function ingestEvent(
     : state.devices;
   const events = [...state.events, event].slice(-MAX_EVENTS);
   let alerts = state.alerts;
+  const repeats = state.events.filter(
+    (e) => e.deviceId === event.deviceId && e.destHost === event.destHost && e.blocked && e.ts >= event.ts - 10 * 60_000,
+  ).length + (event.blocked ? 1 : 0);
   const shouldAlert =
-    !event.blocked &&
-    ((event.risk === "alert" && state.rules.alertAdult) ||
-      (event.risk === "watch" && state.rules.alertAfterHoursSocial));
+    event.risk === "alert" ||
+    (event.blocked &&
+      (event.category === "adult" ||
+        event.category === "vpn" ||
+        event.reason === "dga-entropy" ||
+        event.reason === "quarantine" ||
+        repeats >= 3));
   if (shouldAlert) {
-    const alert = alertFromEvent(event);
+    const alert = alertFromEvent(event, { count: repeats, deviceName: device?.name });
+    if (repeats >= 3) alert.kind = "repeat";
     alerts = [alert, ...state.alerts].slice(0, MAX_ALERTS);
     if (!opts?.silent) {
       if (state.rules.sound) {
@@ -250,8 +330,8 @@ function ingestEvent(
       }
       const who = device?.name ?? event.sourceIp;
       if (alert.severity === "high") {
-        toast.error(`${who} · ${alert.host}`, {
-          description: `${alert.sourceIp} → ${alert.destIp}`,
+        toast.error(alert.sentence || `${who} · ${alert.host}`, {
+          description: `${alert.sourceIp} → ${alert.host}`,
         });
         maybeNotify(alert, who, state.rules.browserNotify);
       }
@@ -265,6 +345,45 @@ function ingestEvent(
     sinceArchive = 0;
   }
   set(() => ({ devices, events, alerts, archives, now: Date.now() }));
+  const latest = get();
+  const dev = latest.devices.find((d) => d.id === event.deviceId);
+  if (dev && !dev.quarantined && autoQuarantineOn(latest.rules, dev.owner, dev.role)) {
+    const cut = event.ts - 15 * 60_000;
+    const high = latest.events.filter(
+      (e) =>
+        e.deviceId === dev.id &&
+        e.ts >= cut &&
+        e.blocked &&
+        (e.category === "adult" || e.category === "vpn" || e.reason === "dga-entropy"),
+    );
+    if (high.length >= 3) {
+      set((st) => ({
+        devices: st.devices.map((d) =>
+          d.id === dev.id ? { ...d, quarantined: true, quarantineReason: "repeated high-severity blocks" } : d,
+        ),
+      }));
+      const qAlert: Alert = {
+        id: newId("al"),
+        eventId: event.id,
+        ts: event.ts,
+        deviceId: dev.id,
+        category: event.category,
+        host: event.destHost,
+        destIp: event.destIp,
+        sourceIp: event.sourceIp,
+        label: event.destLabel,
+        acknowledged: false,
+        severity: "high",
+        kind: "quarantine",
+        sentence: `${dev.name} was isolated after repeated high-severity hits. Review and release.`,
+      };
+      set((st) => ({ alerts: [qAlert, ...st.alerts].slice(0, MAX_ALERTS) }));
+      if (!opts?.silent) {
+        toast.error(`${dev.name} isolated`, { description: "Review and release under People." });
+      }
+      pushPolicy(get);
+    }
+  }
 }
 
 export const useLinewatch = create<LinewatchState>((set, get) => ({
@@ -287,6 +406,8 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   lanProbe: null,
   discovering: false,
   suggestedUrls: [],
+  scan: { at: 0, targets: 0, findings: [] },
+  insights: null,
 
   hydrate: () => {
     if (get().ready) return;
@@ -318,6 +439,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
             ...saved.rules,
             personBlocks: saved.rules.personBlocks ?? {},
             houseAllowlist: saved.rules.houseAllowlist ?? DEFAULT_RULES.houseAllowlist,
+            profileQuarantine: saved.rules.profileQuarantine ?? {},
           };
         }
         if (Array.isArray(saved.events) && saved.events.length) {
@@ -343,6 +465,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       events = seeded.events;
       alerts = seeded.alerts;
       archives = seeded.archives;
+      devices = seeded.devices;
     }
     events = pruneWeek(events, now);
     alerts = pruneWeek(alerts, now);
@@ -435,6 +558,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       devices: s.devices.map((d) => (d.id === id ? { ...d, blocked: !d.blocked } : d)),
     }));
     schedulePersist(get);
+    pushPolicy(get);
   },
 
   renameDevice: (id, name) => {
@@ -449,6 +573,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   setRules: (patch) => {
     set((s) => ({ rules: { ...s.rules, ...patch } }));
     schedulePersist(get);
+    pushPolicy(get);
   },
 
   addToBlocklist: (host) => {
@@ -461,6 +586,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       },
     }));
     schedulePersist(get);
+    pushPolicy(get);
   },
 
   removeFromBlocklist: (host) => {
@@ -468,6 +594,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       rules: { ...s.rules, blocklist: s.rules.blocklist.filter((x) => x !== host) },
     }));
     schedulePersist(get);
+    pushPolicy(get);
   },
 
   addToAllowlist: (host) => {
@@ -482,6 +609,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       },
     }));
     schedulePersist(get);
+    pushPolicy(get);
   },
 
   removeFromAllowlist: (host) => {
@@ -489,6 +617,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       rules: { ...s.rules, houseAllowlist: s.rules.houseAllowlist.filter((x) => x !== host) },
     }));
     schedulePersist(get);
+    pushPolicy(get);
   },
 
   blockSiteForPerson: (owner, host) => {
@@ -507,6 +636,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       };
     });
     schedulePersist(get);
+    pushPolicy(get);
   },
 
   unblockSiteForPerson: (owner, host) => {
@@ -520,6 +650,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       },
     }));
     schedulePersist(get);
+    pushPolicy(get);
   },
 
   ingestLog: (text) => {
@@ -619,18 +750,51 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
         if (rows.length) {
           for (const row of rows) {
             if (row.ts > collectorSince) collectorSince = row.ts;
+            let devices = get().devices;
+            const mac = (row.mac || "").toLowerCase();
+            const known = devices.find(
+              (d) => (mac && d.mac.toLowerCase() === mac) || d.ip === row.sourceIp,
+            );
+            if (!known) {
+              const unknown: Device = {
+                id: `dev-unknown-${row.sourceIp.replace(/\./g, "-")}`,
+                name: `${row.owner || "Unknown"} · ${row.sourceIp}`,
+                owner: row.owner || "Unknown",
+                role: "shared",
+                ip: row.sourceIp,
+                mac: row.mac || "—",
+                kind: "iot",
+                blocked: false,
+                lastSeen: row.ts,
+              };
+              devices = [...devices, unknown];
+              set({ devices });
+            }
+            const event = eventFromCollector({
+              host: row.host,
+              sourceIp: row.sourceIp,
+              ts: row.ts,
+              mac: row.mac,
+              category: row.category as Category | undefined,
+              action: row.action,
+              reason: row.reason,
+              entropy: row.entropy,
+              owner: row.owner,
+              devices,
+              rules: get().rules,
+            });
+            const live = row.ts > Date.now() - 15_000;
+            ingestEvent(set, get, event, { silent: !live });
           }
-          const text = rows
-            .map((row) => `${new Date(row.ts).toISOString()},${row.sourceIp},${row.host}`)
-            .join("\n");
-          get().ingestLog(text);
           const t = Date.now();
           recentTimes.push(t);
           while (recentTimes[0] && recentTimes[0] < t - 60_000) recentTimes.shift();
           set({ eventsPerMin: recentTimes.length, now: t });
         }
         const next = await fetchCollectorStatus(target);
-        set({ collectorStatus: next, houseSource: "house" });
+        const insights =
+          next.insights && typeof next.insights === "object" ? (next.insights as LinewatchState["insights"]) : get().insights;
+        set({ collectorStatus: next, houseSource: "house", insights });
       } catch (err) {
         set({
           collectorStatus: {
@@ -645,6 +809,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     set({ houseSource: "house", ingestNote: `Connected to collector ${target}` });
     toast.success("House collector connected", { description: status.router?.label ?? status.gateway ?? target });
     schedulePersist(get);
+    pushPolicy(get);
     return status;
   },
 
@@ -668,6 +833,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
         events: seeded.events,
         alerts: seeded.alerts,
         archives: seeded.archives,
+        devices: seeded.devices,
         now,
       });
     } else {
@@ -700,5 +866,74 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     } finally {
       set({ discovering: false });
     }
+  },
+
+  approveHost: (host) => {
+    get().addToAllowlist(host);
+    get().removeFromBlocklist(host);
+    toast.success(`Allowed ${host}`);
+  },
+
+  isolateDevice: (id, reason) => {
+    set((s) => ({
+      devices: s.devices.map((d) =>
+        d.id === id ? { ...d, quarantined: true, quarantineReason: reason || "manual" } : d,
+      ),
+    }));
+    schedulePersist(get);
+    pushPolicy(get);
+    const s = get();
+    const d = s.devices.find((x) => x.id === id);
+    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: true, reason });
+  },
+
+  releaseQuarantine: (id) => {
+    set((s) => ({
+      devices: s.devices.map((d) =>
+        d.id === id ? { ...d, quarantined: false, quarantineReason: undefined } : d,
+      ),
+    }));
+    schedulePersist(get);
+    pushPolicy(get);
+    const s = get();
+    const d = s.devices.find((x) => x.id === id);
+    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: false });
+    toast.success("Released from quarantine");
+  },
+
+  setProfileQuarantine: (owner, on) => {
+    set((s) => ({ rules: { ...s.rules, profileQuarantine: { ...s.rules.profileQuarantine, [owner]: on } } }));
+    schedulePersist(get);
+    pushPolicy(get);
+  },
+
+  runScan: async () => {
+    set({ scan: { at: Date.now(), targets: 0, findings: [], running: true } });
+    const s = get();
+    if (s.houseSource === "house" && s.collectorUrl) {
+      await collectorPost(s.collectorUrl, "/scan", {});
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const data = await collectorGet<{ running?: boolean; scan?: ScanReport }>(s.collectorUrl, "/scan");
+        if (data?.scan && !data.running) {
+          set({ scan: { ...data.scan, running: false } });
+          return;
+        }
+      }
+    }
+    await new Promise((r) => setTimeout(r, 900));
+    const demo: ScanFinding[] = [
+      {
+        ip: "192.168.1.71",
+        name: "Front Door Camera",
+        mac: "10:AE:60:1D:44:2E",
+        port: 23,
+        label: "Telnet",
+        severity: "high",
+        sentence: "Front Door Camera (192.168.1.71) has Telnet open. That is a common exposure — review it.",
+      },
+    ];
+    set({ scan: { at: Date.now(), targets: s.devices.length, findings: demo, running: false } });
+    toast.error("Scan found an exposed device", { description: demo[0]!.sentence });
   },
 }));

@@ -6,6 +6,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { HouseConnect } from "@/components/house-connect";
+import { ScanPanel } from "@/components/scan-panel";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useLinewatch } from "@/lib/linewatch/store";
@@ -43,6 +44,8 @@ function SettingsPage() {
         </header>
 
         <HouseConnect />
+
+        <ScanPanel />
 
         <details className="text-sm">
           <summary className="cursor-pointer text-muted">Phone install, alerts, paste a log</summary>

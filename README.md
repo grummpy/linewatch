@@ -2,76 +2,51 @@
 
 **Chris Decker**
 
-Watch what leaves the house. Linewatch is a household outbound monitor: it
-classifies traffic (including adult destinations), splits Amazon Sidewalk from
-ordinary WAN data, ties hits to a person and device, and alerts you on your
-phone.
+This computer is house DNS. Every phone, iPad, and Xbox on your Wi-Fi asks it
+for names. Linewatch inspects the **domain** (not the page), blocks adult /
+VPN bypasses / random malware names, rewrites search to safe search, and
+alerts you in a sentence — not a raw dump.
 
-If you have kids, the simple setup is: **Pi-hole as house DNS → Linewatch
-collector on that box (leave it on) → this app on your phone.** The app finds
-your router when it opens. Close the phone — the collector keeps the 7-day log
-(older rows are overwritten). Full steps in [SETUP.md](./SETUP.md).
+If you have kids: **double-click Install Linewatch on a Mac or PC that stays
+on → set the router DNS to that computer → open Linewatch on your phone.**
+The phone never sniffs the line. Close it. The computer keeps a 7-day log.
 
 Public source: [github.com/grummpy/linewatch](https://github.com/grummpy/linewatch)
 
-## Why this exists
+## Click install
 
-Phones, iPads, and game consoles all go out through one router. You should be
-able to see:
-
-- which **person / IP** opened a site
-- **when**
-- whether it was **adult**, social, streaming, or Sidewalk (Ring / Alexa / Tile)
-- whether a **location-class** destination (Maps, Weather) was in the mix
-
-and then block that site for one kid or for the house.
-
-This is for **your own LAN**. It is not a school or workplace surveillance
-product.
-
-## Simple path if you have kids
-
-1. Put a Raspberry Pi or spare computer on your Wi-Fi. Install Pi-hole. Point
-   the router’s DNS at it. Every device in the house now asks that box for
-   names.
-2. `LINEWATCH_DNS_LOG=/var/log/pihole.log npm run collector`
-3. Open Linewatch on the same Wi-Fi. Setup autocompletes your router. Connect
-   if it did not already.
-4. Safari (iPhone) or Chrome (Android) → Add to Home Screen. Alerts on.
-
-That is the whole watch. You do not install anything on the kids’ phones.
-The collector stays on when the phone sleeps.
-
-Details, including UniFi / Asus syslog if you already have a real router:
-**[SETUP.md](./SETUP.md)**. Phone pin: **[PHONE.md](./PHONE.md)**.
-
-## Run it
-
-```bash
-npm install
-npm run dev
-npm run collector    # on the always-on computer
-```
-
-## What the desk does
-
-| Screen | Use |
+| You have | Double-click |
 |---|---|
-| Live | Person chips, Sidewalk vs WAN, adult highlights |
-| People | One profile per person — devices, IP, MAC, location-class hits, personal blocks |
-| House | Home firewall: monitor / blacklist / whitelist + site log |
-| Logs | Auto-archive repository (7-day overwrite), CSV, alerts |
-| Setup | Your house collector, phone install, DNS paste |
+| Mac | `install/macos/Install Linewatch.command` |
+| Windows | `install/windows/Install-Linewatch.bat` |
+| Linux | `install/linux/install.sh` |
 
-Logs stay in this browser (`localStorage`) unless you download CSV. The
-collector on the always-on computer is the week of house DNS.
+That starts house DNS and opens the parent desk. Then one step you still do
+on the router: DNS = this computer.
+
+Python and Java collectors live in `collector/python` and `collector/java`
+if you do not want Node.
+
+## What it does
+
+- Intercepts DNS, matches a device/MAC to a person profile
+- Global + per-person blocklists (adult, gaming, social)
+- Safe search rewrite (Google, Bing, YouTube, DuckDuckGo)
+- Bedtime and homework sliders
+- VPN / private DNS / iCloud Relay flagged as bypass
+- High-randomness names (DGA / malware) flagged by entropy
+- Repeated blocks in ten minutes become a sentence, not four identical rows
+- Three high-severity hits isolate that device until you release it (on for
+  kids, off per person if you want)
+- On-demand Wi-Fi exposure scan (open Telnet/SMB/RDP) — never background
+- Phone on the same Wi-Fi is the remote: live, approve, block, release, alerts
 
 ## Honest limits
 
-A phone cannot sniff the router by itself, and it cannot watch while closed.
-Sidewalk is tagged from Amazon / Ring / Tile **hosts**, not the 900 MHz radio.
-Location is a destination class, not GPS. Dest IP “region” is the **server**,
-not where your kid is standing.
+A phone cannot be house DNS. Isolation is DNS sinkhole, not a VLAN. The
+scan is a TCP connect to known-danger ports, not a full nmap of the internet.
+Safe search is a DNS rewrite — a child using a VPN you have not blocked can
+still walk around it, which is why VPN names are denied.
 
 ## License
 

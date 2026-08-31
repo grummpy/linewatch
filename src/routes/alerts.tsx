@@ -62,13 +62,27 @@ function AlertsPage() {
                     onClick={() => selectEvent(a.eventId)}
                   >
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={high ? "danger" : "warn"}>{high ? "Adult" : "Watch"}</Badge>
+                      <Badge tone={high ? "danger" : "warn"}>
+                        {a.kind === "vpn"
+                          ? "VPN"
+                          : a.kind === "dga"
+                            ? "Random name"
+                            : a.kind === "quarantine"
+                              ? "Isolated"
+                              : a.kind === "repeat"
+                                ? "Repeat"
+                                : a.kind === "homework"
+                                  ? "Homework"
+                                  : a.kind === "bedtime"
+                                    ? "Bedtime"
+                                    : high
+                                      ? "Adult"
+                                      : "Watch"}
+                      </Badge>
                       {!a.acknowledged ? <Badge tone="solid">Open</Badge> : null}
                       <span className="text-sm font-medium">{device?.name ?? a.sourceIp}</span>
                     </div>
-                    <p className="mt-1 text-sm">
-                      {a.label} · {a.host}
-                    </p>
+                    <p className="mt-1 text-sm">{a.sentence || `${a.label} · ${a.host}`}</p>
                     <p className="mt-1 font-mono text-[11px] text-muted">
                       {formatDateTime(a.ts)} · {a.sourceIp} → {a.destIp}
                     </p>

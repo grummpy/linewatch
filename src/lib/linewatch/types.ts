@@ -15,6 +15,7 @@ export type Category =
   | "ads"
   | "cloud"
   | "system"
+  | "vpn"
   | "unknown";
 
 export type DeviceKind = "phone" | "tablet" | "laptop" | "console" | "tv" | "iot";
@@ -23,7 +24,8 @@ export type Protocol = "https" | "http" | "quic" | "dns";
 export type Risk = "ok" | "watch" | "alert";
 export type PathKind = "wan" | "sidewalk" | "amazon";
 export type FirewallMode = "monitor" | "blacklist" | "whitelist";
-export type FeedFilter = "all" | "adult" | "kids" | "blocked" | "sidewalk" | "wan" | "location";
+export type FeedFilter = "all" | "adult" | "kids" | "blocked" | "sidewalk" | "wan" | "location" | "vpn";
+export type DnsAction = "allowed" | "blocked" | "rewritten";
 
 export type Destination = {
   host: string;
@@ -43,6 +45,8 @@ export type Device = {
   kind: DeviceKind;
   blocked: boolean;
   lastSeen: number;
+  quarantined?: boolean;
+  quarantineReason?: string;
 };
 
 export type TrafficEvent = {
@@ -63,7 +67,22 @@ export type TrafficEvent = {
   bytes: number;
   risk: Risk;
   blocked: boolean;
+  action?: DnsAction;
+  reason?: string;
+  entropy?: number;
+  mac?: string;
 };
+
+export type AlertKind =
+  | "adult"
+  | "vpn"
+  | "dga"
+  | "repeat"
+  | "bedtime"
+  | "homework"
+  | "quarantine"
+  | "scan"
+  | "watch";
 
 export type Alert = {
   id: string;
@@ -77,6 +96,9 @@ export type Alert = {
   label: string;
   acknowledged: boolean;
   severity: "high" | "medium";
+  kind?: AlertKind;
+  sentence?: string;
+  count?: number;
 };
 
 export type Archive = {
@@ -119,6 +141,16 @@ export type Rules = {
   houseAllowlist: string[];
   keepSystemUpdates: boolean;
   personBlocks: Record<string, string[]>;
+  safeSearch: boolean;
+  bedtimeOn: boolean;
+  homeworkOn: boolean;
+  homeworkStartHour: number;
+  homeworkEndHour: number;
+  blockAdult: boolean;
+  blockGaming: boolean;
+  blockSocial: boolean;
+  autoQuarantine: boolean;
+  profileQuarantine: Record<string, boolean>;
 };
 
 export const DEFAULT_RULES: Rules = {
@@ -129,10 +161,20 @@ export const DEFAULT_RULES: Rules = {
   sound: true,
   browserNotify: false,
   blocklist: [],
-  firewallMode: "monitor",
-  houseAllowlist: ["apple.com", "icloud.com", "google.com", "windowsupdate.com", "cloudflare.com"],
+  firewallMode: "blacklist",
+  houseAllowlist: ["apple.com", "icloud.com", "google.com", "windowsupdate.com", "cloudflare.com", "microsoft.com"],
   keepSystemUpdates: true,
   personBlocks: {},
+  safeSearch: true,
+  bedtimeOn: true,
+  homeworkOn: false,
+  homeworkStartHour: 16,
+  homeworkEndHour: 18,
+  blockAdult: true,
+  blockGaming: false,
+  blockSocial: false,
+  autoQuarantine: true,
+  profileQuarantine: {},
 };
 
 export const CATEGORY_LABEL: Record<Category, string> = {
@@ -148,6 +190,7 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   ads: "Ads",
   cloud: "Cloud",
   system: "System",
+  vpn: "VPN / DNS",
   unknown: "Unknown",
 };
 
@@ -170,3 +213,34 @@ export const SYSTEM_HOSTS = [
   "live.com",
   "cloudflare.com",
 ];
+
+export type ScanFinding = {
+  ip: string;
+  name: string;
+  mac: string;
+  port: number;
+  label: string;
+  severity: "high" | "medium";
+  sentence: string;
+};
+
+export type ScanReport = {
+  at: number;
+  targets: number;
+  findings: ScanFinding[];
+  running?: boolean;
+};
+
+export type InsightReport = {
+  date: string;
+  queries: number;
+  blocked: number;
+  adultAttempts: number;
+  vpnAttempts: number;
+  dgaFlags: number;
+  bedtimeHits: number;
+  homeworkHits: number;
+  topBlocked: { host: string; count: number; people: string[] }[];
+  repeatOffenders: { owner: string; host: string; count: number; sentence: string }[];
+  sentences: string[];
+};

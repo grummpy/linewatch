@@ -11,7 +11,9 @@ export function CategoryBadge({ category, risk }: { category: Category; risk?: R
       ? "danger"
       : risk === "watch"
         ? "warn"
-        : category === "social"
+        : category === "vpn"
+          ? "danger"
+          : category === "social"
           ? "accent"
           : "muted";
   return <Badge tone={tone}>{CATEGORY_LABEL[category]}</Badge>;

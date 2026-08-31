@@ -1,53 +1,45 @@
 # Linewatch setup — Chris Decker
 
-A simple way to watch house traffic when you have kids: put one always-on
-computer on your Wi-Fi, send DNS there, and read it in Linewatch on your phone.
-
-You do **not** install an App Store app on the kids’ phones. You watch what
-leaves the **router**.
-
-The phone can close. The collector computer stays on, keeps writing, and
-**overwrites logs older than 7 days**.
+The computer is the watch. The phone is the window.
 
 ---
 
-## The simple path (recommended if you have kids)
+## Click and run (Mac / Windows)
 
-Most consumer routers (eero, Nest, ISP gateways) will not show you every site.
-**Pi-hole** is the straightforward fix: it becomes DNS for the house, so every
-device — phones, iPads, Xbox, the TV — asks it for names. Linewatch reads that
-log.
+1. Unzip Linewatch on a computer that **stays on** this Wi-Fi.
+2. Double-click:
+   - Mac: `install/macos/Install Linewatch.command`
+   - Windows: `install/windows/Install-Linewatch.bat`
+3. A browser opens the parent desk. Keep that computer awake.
+4. On the **router**, set DNS to this computer’s address (the installer prints it).
+5. On your phone, same Wi-Fi: open Linewatch → it finds the computer → Add to Home Screen.
 
-### What you need
+Kids’ phones get nothing installed. They just use Wi-Fi.
 
-- A Raspberry Pi, old laptop, or Mac mini that stays on, on **your** Wi-Fi
-- 20 minutes
-- The phone you carry (for alerts)
+Python: `python3 collector/python/linewatch_dns.py`  
+Java: `javac collector/java/LinewatchDns.java && java -cp collector/java LinewatchDns`
 
-### 1. Make that computer the house DNS
+---
 
-1. Install [Pi-hole](https://pi-hole.net) on the always-on computer.
-2. In the **router** DHCP settings, set DNS to the Pi-hole’s LAN IP
-   (example: `192.168.1.10`).
-3. Renew Wi-Fi on the kids’ devices, or reboot them once.
-4. Open the Pi-hole dashboard. You should see queries from their IPs.
+## House profile (the easy buttons)
 
-Now every lookup in the house hits that box. That is the watch point.
+Under **House**:
 
-### 2. Run Linewatch’s collector next to Pi-hole
+- **Bedtime** and **Homework** sliders — on/off, then drag the hours
+- **Block adult / social / gaming**
+- **Safe search**
+- **Auto-isolate kids** — three high-severity hits in fifteen minutes
+- Site log: **Approve** or **House deny**, or a person’s name
 
-On the same computer:
+Under **People**: turn auto-isolate off for one kid, **Release** a quarantined device.
 
-```bash
-git clone https://github.com/grummpy/linewatch.git
-cd linewatch
-npm install
-LINEWATCH_DNS_LOG=/var/log/pihole.log npm run collector
-```
+Under **Setup**: **Scan this Wi-Fi** — on demand only.
 
-It prints this computer’s IP and the router/gateway it found.
+Alerts speak in sentences: “Riley tried pornhub.com 4 times in 8 minutes. Linewatch blocked it.”
 
-Leave that window running, or install the always-on service so it survives reboot:
+---
+
+## Always-on (Linux)
 
 ```bash
 sudo mkdir -p /opt/linewatch /var/lib/linewatch
@@ -56,78 +48,15 @@ sudo cp collector/linewatch.service /etc/systemd/system/linewatch.service
 sudo systemctl enable --now linewatch
 ```
 
-Mac: keep Terminal open, or add `npm run collector` as a Login Item.
+Mac: Login Item for `Install Linewatch.command`. Windows: Task Scheduler on the `.bat`.
 
 The **phone can close**. This computer is the watch. Logs older than **7 days** are overwritten.
 
-### 3. Open Linewatch — it finds the router
-
-On a phone on the **same Wi-Fi**, open Linewatch. Setup fills in your router
-(.1) and looks for the collector on this network. If it does not connect by
-itself, tap **Find my router**, then **Connect**.
-
-If you also run the desk from that computer:
-
-```bash
-npm run dev
-```
-
-then open Linewatch → **Setup**. It should say **Watching**.
-
-The demo family (Riley, Sam, …) stops. Live is **your** LAN: device IP, site,
-time, Sidewalk vs WAN, adult hits.
-
-### 4. Put it on your phone
-
-- **iPhone:** Safari → Share → Add to Home Screen
-- **Android:** Chrome → Install app
-
-Turn on alerts in **Setup**. Adult destinations on a kid’s IP fire immediately.
-
 ---
 
-## If you already have a serious router
+## Schema (on the computer)
 
-Skip Pi-hole. Run the collector and send **syslog** to it (UDP 5514):
-
-| Router | Where |
-|---|---|
-| UniFi | Settings → System → syslog |
-| Asus / Merlin | System log → forwarding |
-| OpenWrt / pfSense / OPNsense | remote syslog server |
-| Firewalla | already logs DNS — export or syslog |
-
-Then open Linewatch on the same Wi-Fi. It autocompletes the collector.
-
----
-
-## What you will see (and what you will not)
-
-- **Site name, device IP, time, size, path** (WAN vs Amazon Sidewalk)
-- **Adult** classified from the destination host — not from page content
-- **Location** means Maps / Weather / Apple Location, not a GPS pin
-- You will **not** get packet payloads, passwords, or camera video
-- A phone alone cannot tap the WAN. The collector + DNS/syslog is the line.
-- Closing the app does **not** stop the watch. The collector computer does.
-
-Assign devices to people under **People** (name, role: child / parent). Block a
-site for one kid or for the whole house under **House**.
-
----
-
-## Quick commands
-
-```bash
-npm install
-npm run dev          # the desk
-npm run collector    # finds the gateway, takes DNS/syslog, keeps 7 days
-```
-
-Paste a Pi-hole / dnsmasq line if you do not want the collector yet:
-
-```
-Aug 31 12:14:01 query[A] example.com from 192.168.1.31
-```
+See [collector/SCHEMA.md](./collector/SCHEMA.md): timestamp, device MAC, requested domain, category, action, reason. Global and profile blocklists for adult / gaming / social.
 
 ---
 

@@ -5,6 +5,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { EventDetail } from "@/components/event-detail";
+import { InsightsCard } from "@/components/insights-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { archiveToCsv } from "@/lib/linewatch/selectors";
@@ -32,7 +33,7 @@ function LogsPage() {
             <h1 className="text-2xl font-medium tracking-tight md:text-3xl">Logs</h1>
             <p className="mt-1 max-w-xl text-sm text-muted">
               Live buffer auto-archives into a repository. Rows older than 7 days are overwritten.
-              Download any roll as CSV. Alerts sit with the same desk.
+              Insights are sentences, not a dump. Download any roll as CSV.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -44,6 +45,8 @@ function LogsPage() {
             </Button>
           </div>
         </header>
+
+        <InsightsCard />
 
         <section>
           <h2 className="mb-3 text-sm font-medium">Repository</h2>

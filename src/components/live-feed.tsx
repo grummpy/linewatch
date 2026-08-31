@@ -17,6 +17,7 @@ const FILTERS: { id: FeedFilter; label: string }[] = [
   { id: "sidewalk", label: "Sidewalk" },
   { id: "wan", label: "WAN" },
   { id: "location", label: "Location" },
+  { id: "vpn", label: "VPN" },
   { id: "blocked", label: "Blocked" },
 ];
 
@@ -106,6 +107,7 @@ export function LiveFeed() {
                         {e.owner}
                         <span className="text-muted"> · {device?.name ?? e.sourceIp}</span>
                         {e.blocked ? <span className="ml-2 text-xs text-warn">blocked</span> : null}
+                        {e.action === "rewritten" ? <span className="ml-2 text-xs text-accent">safe search</span> : null}
                         {e.locationHint ? <span className="ml-2 text-xs text-accent">loc</span> : null}
                       </span>
                       <span className="block truncate font-mono text-[11px] text-muted">

@@ -15,4 +15,7 @@ AGENTS.md
 AGENTS.project.md
 public/__grok
 data
+*.class
+__pycache__/
+*.pyc
 

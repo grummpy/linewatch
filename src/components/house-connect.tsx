@@ -40,8 +40,8 @@ export function HouseConnect() {
         <div>
           <h2 className="text-sm font-medium">Your house</h2>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-            Opens onto your router. One always-on computer collects the line. This phone can close.
-            Logs overwrite after 7 days.
+            Opens onto your router. This computer is house DNS — every device asks it for names.
+            The phone only watches. Logs overwrite after 7 days.
           </p>
         </div>
         <span className="font-mono text-[11px] tracking-wide text-subtle uppercase">
@@ -82,7 +82,7 @@ export function HouseConnect() {
             </button>
             {copied ? <span className="ml-2 text-ok">copied</span> : null}
           </p>
-          <p>Point house DNS (Pi-hole) or router syslog at that computer. Open this app — it fills the address in.</p>
+          <p>Point the router’s DNS at that computer. Open this app — it fills the address in. The phone only watches.</p>
         </div>
       )}
 

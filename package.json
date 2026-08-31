@@ -18,8 +18,12 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "collector": "node collector/linewatch-collector.mjs",
+    "house": "node collector/linewatch-collector.mjs",
+    "install:house": "node install/setup.mjs",
+    "collector:python": "python3 collector/python/linewatch_dns.py",
+    "collector:java": "javac collector/java/LinewatchDns.java && java -cp collector/java LinewatchDns",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' collector/lib/policy.test.mjs && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

@@ -19,9 +19,13 @@ export type CollectorStatus = {
   router?: { label: string; kind: string };
   syslogPort?: number;
   httpPort?: number;
+  dnsPort?: number;
+  dns?: boolean;
   eventCount?: number;
   alwaysOn?: boolean;
   retentionDays?: number;
+  quarantine?: string[];
+  insights?: unknown;
   error?: string;
 };
 
@@ -29,6 +33,12 @@ export type CollectorEvent = {
   ts: number;
   sourceIp: string;
   host: string;
+  mac?: string;
+  category?: string;
+  action?: "allowed" | "blocked" | "rewritten";
+  reason?: string;
+  entropy?: number;
+  owner?: string;
 };
 
 function isPrivateIp(ip: string): boolean {
@@ -177,4 +187,32 @@ export async function discoverCollector(
     if (next) return next;
   }
   return null;
+}
+
+export async function collectorPost(rawUrl: string, path: string, body: unknown): Promise<boolean> {
+  const url = normalizeCollectorUrl(rawUrl);
+  if (!url) return false;
+  try {
+    const res = await fetch(`${url}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.ok || res.status === 202;
+  } catch {
+    return false;
+  }
+}
+
+export async function collectorGet<T>(rawUrl: string, path: string): Promise<T | null> {
+  const url = normalizeCollectorUrl(rawUrl);
+  if (!url) return null;
+  try {
+    const res = await fetch(`${url}${path}`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
 }

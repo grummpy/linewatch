@@ -14,6 +14,9 @@ export function AlertBanner() {
   const acknowledgeAll = useLinewatch((s) => s.acknowledgeAll);
   const selectEvent = useLinewatch((s) => s.selectEvent);
   const toggleBlockDevice = useLinewatch((s) => s.toggleBlockDevice);
+  const addToBlocklist = useLinewatch((s) => s.addToBlocklist);
+  const addToAllowlist = useLinewatch((s) => s.addToAllowlist);
+  const releaseQuarantine = useLinewatch((s) => s.releaseQuarantine);
   const current = useLinewatch((s) => s.alerts.find((a) => !a.acknowledged));
   const extra = useLinewatch((s) => Math.max(0, s.alerts.filter((a) => !a.acknowledged).length - 1));
 
@@ -33,11 +36,21 @@ export function AlertBanner() {
         <ShieldAlert className={adult ? "mt-0.5 size-5 text-danger" : "mt-0.5 size-5 text-warn"} />
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium tracking-[0.14em] uppercase text-muted">
-            {adult ? "Adult content" : "After-hours social"}
+            {current.kind === "quarantine"
+              ? "Isolated"
+              : current.kind === "vpn"
+                ? "VPN / bypass"
+                : current.kind === "dga"
+                  ? "Random name"
+                  : current.kind === "repeat"
+                    ? "Repeated block"
+                    : adult
+                      ? "Adult content"
+                      : "Watch"}
             {extra > 0 ? ` · +${extra} more` : ""}
           </p>
           <p className="mt-1 text-base font-medium tracking-tight">
-            {device?.name ?? current.sourceIp} opened {current.label}
+            {current.sentence || `${device?.name ?? current.sourceIp} opened ${current.label}`}
           </p>
           <p className="mt-1 font-mono text-xs text-muted">
             {formatTime(current.ts)} · {current.sourceIp} → {current.destIp} · {current.host}
@@ -49,7 +62,17 @@ export function AlertBanner() {
             <Button size="sm" variant="outline" onClick={() => selectEvent(current.eventId)}>
               Open event
             </Button>
-            {device && !device.blocked ? (
+            <Button size="sm" variant="outline" onClick={() => addToBlocklist(current.host)}>
+              Block site
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => addToAllowlist(current.host)}>
+              Approve site
+            </Button>
+            {device?.quarantined ? (
+              <Button size="sm" variant="ghost" onClick={() => releaseQuarantine(device.id)}>
+                Release device
+              </Button>
+            ) : device && !device.blocked ? (
               <Button size="sm" variant="ghost" onClick={() => toggleBlockDevice(device.id)}>
                 Block device
               </Button>

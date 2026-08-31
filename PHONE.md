@@ -2,31 +2,24 @@
 
 Chris Decker
 
-Linewatch is a Home Screen web app. The zip on Google Drive is **source for a
-computer**. Unzipping it on a phone will not watch the router.
+The phone is a remote for the computer. Unzipping the Drive zip on a phone
+will not watch the router.
 
-Watch the house first (see [SETUP.md](./SETUP.md)), then pin the running desk.
-When you open it on the same Wi-Fi, it looks for your router and fills the
-collector in. The phone can close — the collector computer keeps the 7-day log.
+1. Run Linewatch on the always-on computer (see [SETUP.md](./SETUP.md)).
+2. Phone on the **same Wi-Fi**.
+3. Open Linewatch — it finds the computer and shows house DNS live.
+4. Pin it.
 
 ## iPhone (iOS 16+)
 
-1. Open Linewatch in **Safari** (not Chrome), on your home Wi-Fi.
-2. Share → **Add to Home Screen**.
-3. Name it Linewatch → Add.
-4. Setup → allow notifications if you want adult alerts on the lock screen.
+Safari (not Chrome) → Share → Add to Home Screen. Alerts on.
 
 ## Android (10+)
 
-1. Open Linewatch in **Chrome**, on your home Wi-Fi.
-2. Install app (address bar or menu).
-3. Setup → allow notifications.
+Chrome → Install app. Alerts on.
 
 ## Google Drive
 
 Folder: https://drive.google.com/drive/folders/1dov_LjlNvk5ybb0hsNBPws84ws9XzL_H
 
-On the phone, Drive is for the zip, the setup doc, and sharing with your other
-devices. Drive cannot install the app. Pin from Safari / Chrome as above.
-
-To share the folder: ⋮ → Share → add a Gmail, or Copy link.
+Drive holds the zip and the setup doc. It cannot install the phone app.

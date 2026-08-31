@@ -6,6 +6,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { EventDetail } from "@/components/event-detail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { formatBytes, formatDateTime, kindLabel, pathTone } from "@/lib/linewatch/format";
 import { startOfDay } from "@/lib/linewatch/selectors";
 import { useLinewatch } from "@/lib/linewatch/store";
@@ -24,6 +25,9 @@ function PersonPage() {
   const toggleBlockDevice = useLinewatch((s) => s.toggleBlockDevice);
   const blockSiteForPerson = useLinewatch((s) => s.blockSiteForPerson);
   const unblockSiteForPerson = useLinewatch((s) => s.unblockSiteForPerson);
+  const isolateDevice = useLinewatch((s) => s.isolateDevice);
+  const releaseQuarantine = useLinewatch((s) => s.releaseQuarantine);
+  const setProfileQuarantine = useLinewatch((s) => s.setProfileQuarantine);
   const selectEvent = useLinewatch((s) => s.selectEvent);
   const setPersonFilter = useLinewatch((s) => s.setPersonFilter);
 
@@ -36,6 +40,8 @@ function PersonPage() {
   const adult = today.filter((e) => e.category === "adult").length;
   const recent = [...events].slice(-12).reverse();
   const role = devices[0]?.role ?? "shared";
+  const autoOn =
+    owner in rules.profileQuarantine ? Boolean(rules.profileQuarantine[owner]) : role === "child" ? rules.autoQuarantine : false;
 
   return (
     <div className="flex flex-col gap-6">
@@ -81,6 +87,15 @@ function PersonPage() {
       </dl>
 
       <section className="rounded-lg bg-surface p-4 shadow-[var(--shadow-border)]">
+        <Switch
+          checked={autoOn}
+          onCheckedChange={(v) => setProfileQuarantine(owner, v)}
+          label="Auto-isolate this person"
+          description="On after three high-severity hits in fifteen minutes. House default applies to kids unless you turn it off here."
+        />
+      </section>
+
+      <section className="rounded-lg bg-surface p-4 shadow-[var(--shadow-border)]">
         <h2 className="text-sm font-medium">Devices</h2>
         <ul className="mt-3 divide-y divide-border">
           {devices.map((d) => (
@@ -91,8 +106,19 @@ function PersonPage() {
                   {d.ip} · {d.mac} · {kindLabel(d.kind)}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge tone={d.blocked ? "danger" : "ok"}>{d.blocked ? "Blocked" : "On"}</Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={d.quarantined ? "danger" : d.blocked ? "danger" : "ok"}>
+                  {d.quarantined ? "Isolated" : d.blocked ? "Blocked" : "On"}
+                </Badge>
+                {d.quarantined ? (
+                  <Button size="sm" onClick={() => releaseQuarantine(d.id)}>
+                    Release
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => isolateDevice(d.id, "manual")}>
+                    Isolate
+                  </Button>
+                )}
                 <Button size="sm" variant={d.blocked ? "outline" : "danger"} onClick={() => toggleBlockDevice(d.id)}>
                   {d.blocked ? "Unblock" : "Block internet"}
                 </Button>

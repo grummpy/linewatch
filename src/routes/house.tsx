@@ -6,8 +6,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { EventDetail } from "@/components/event-detail";
+import { HourRange } from "@/components/hour-range";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { formatBytes, formatRelative, pathTone } from "@/lib/linewatch/format";
 import { owners, siteLog } from "@/lib/linewatch/selectors";
 import { useLinewatch } from "@/lib/linewatch/store";
@@ -48,10 +50,69 @@ function HousePage() {
         <header>
           <h1 className="text-2xl font-medium tracking-tight md:text-3xl">House firewall</h1>
           <p className="mt-1 max-w-xl text-sm text-muted">
-            Home profile for traffic in and out. Blacklist denies, whitelist allows only. Then push a
-            site onto a person.
+            House profile. Sliders for bedtime and homework. Adult / gaming / social as switches. Then
+            approve or block a site.
           </p>
         </header>
+
+        <section className="grid gap-4 md:grid-cols-2">
+          <HourRange
+            title="Bedtime"
+            description="Kids lose social, games, and streaming in this window."
+            enabled={rules.bedtimeOn}
+            onEnabled={(v) => setRules({ bedtimeOn: v })}
+            start={rules.quietStartHour}
+            end={rules.quietEndHour}
+            onStart={(h) => setRules({ quietStartHour: h })}
+            onEnd={(h) => setRules({ quietEndHour: h })}
+          />
+          <HourRange
+            title="Homework time"
+            description="Kids lose games and social while this is on."
+            enabled={rules.homeworkOn}
+            onEnabled={(v) => setRules({ homeworkOn: v })}
+            start={rules.homeworkStartHour}
+            end={rules.homeworkEndHour}
+            onStart={(h) => setRules({ homeworkStartHour: h })}
+            onEnd={(h) => setRules({ homeworkEndHour: h })}
+          />
+        </section>
+
+        <section className="rounded-lg bg-surface p-4 shadow-[var(--shadow-border)]">
+          <h2 className="text-sm font-medium">House categories</h2>
+          <div className="mt-3 divide-y divide-border">
+            <Switch
+              checked={rules.blockAdult}
+              onCheckedChange={(v) => setRules({ blockAdult: v })}
+              label="Block adult"
+              description="Kids never resolve those names. Parents still can."
+            />
+            <Switch
+              checked={rules.blockSocial}
+              onCheckedChange={(v) => setRules({ blockSocial: v })}
+              label="Block social"
+              description="TikTok, Instagram, Discord, and the rest — kids only."
+            />
+            <Switch
+              checked={rules.blockGaming}
+              onCheckedChange={(v) => setRules({ blockGaming: v })}
+              label="Block gaming"
+              description="Roblox, Xbox, Steam, Minecraft — kids only."
+            />
+            <Switch
+              checked={rules.safeSearch}
+              onCheckedChange={(v) => setRules({ safeSearch: v })}
+              label="Safe search"
+              description="Google, Bing, YouTube, DuckDuckGo rewritten to their locked-safe names."
+            />
+            <Switch
+              checked={rules.autoQuarantine}
+              onCheckedChange={(v) => setRules({ autoQuarantine: v })}
+              label="Auto-isolate kids"
+              description="Three high-severity hits in fifteen minutes put that device in digital quarantine. Turn off per person under People."
+            />
+          </div>
+        </section>
 
         <section className="rounded-lg bg-surface p-4 shadow-[var(--shadow-border)]">
           <h2 className="text-sm font-medium">Mode</h2>
@@ -183,6 +244,9 @@ function HousePage() {
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="danger" onClick={() => addToBlocklist(s.host)}>
                       House deny
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => addToAllowlist(s.host)}>
+                      Approve
                     </Button>
                     {people
                       .filter((p) => p !== "House")

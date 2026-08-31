@@ -28,7 +28,10 @@ export function EventDetail() {
   const devices = useLinewatch((s) => s.devices);
   const toggleBlockDevice = useLinewatch((s) => s.toggleBlockDevice);
   const addToBlocklist = useLinewatch((s) => s.addToBlocklist);
+  const addToAllowlist = useLinewatch((s) => s.addToAllowlist);
   const blockSiteForPerson = useLinewatch((s) => s.blockSiteForPerson);
+  const isolateDevice = useLinewatch((s) => s.isolateDevice);
+  const releaseQuarantine = useLinewatch((s) => s.releaseQuarantine);
   const acknowledge = useLinewatch((s) => s.acknowledge);
   const relatedAlert = useLinewatch((s) => s.alerts.find((a) => a.eventId === s.selectedEventId));
 
@@ -48,6 +51,8 @@ export function EventDetail() {
             <CategoryBadge category={event.category} risk={event.risk} />
             <Badge tone={pathTone(event.path)}>{PATH_LABEL[event.path]}</Badge>
             {event.blocked ? <Badge tone="warn">Blocked</Badge> : null}
+            {event.action === "rewritten" ? <Badge tone="accent">Safe search</Badge> : null}
+            {device?.quarantined ? <Badge tone="danger">Isolated</Badge> : null}
             {event.locationHint ? <Badge tone="accent">Location</Badge> : null}
             {event.risk === "alert" ? (
               <span className="inline-flex items-center gap-1 text-xs text-danger">
@@ -71,6 +76,8 @@ export function EventDetail() {
             <Row k="Genre" v={CATEGORY_LABEL[event.category]} />
             <Row k="Protocol" v={`${event.protocol.toUpperCase()} :${event.destPort}`} />
             <Row k="Bytes" v={formatBytes(event.bytes)} />
+            {event.reason ? <Row k="Why" v={event.reason} /> : null}
+            {event.entropy ? <Row k="Name entropy" v={String(event.entropy)} /> : null}
             <Row
               k="User location"
               v={
@@ -97,12 +104,23 @@ export function EventDetail() {
                 {device.blocked ? "Unblock device" : "Block this device"}
               </Button>
             ) : null}
+            <Button variant="outline" onClick={() => addToAllowlist(event.destHost)}>
+              Approve {event.destHost}
+            </Button>
             <Button variant="outline" onClick={() => addToBlocklist(event.destHost)}>
               Block {event.destHost} for the house
             </Button>
             <Button variant="outline" onClick={() => blockSiteForPerson(event.owner, event.destHost)}>
               Block for {event.owner} only
             </Button>
+            {device && !device.quarantined ? (
+              <Button variant="danger" onClick={() => isolateDevice(device.id, "manual")}>
+                Isolate device
+              </Button>
+            ) : null}
+            {device?.quarantined ? (
+              <Button onClick={() => releaseQuarantine(device.id)}>Release from quarantine</Button>
+            ) : null}
           </div>
         </div>
       ) : (
