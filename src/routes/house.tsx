@@ -3,7 +3,7 @@
  * Copyright (c) 2026 Chris Decker
  */
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { EventDetail } from "@/components/event-detail";
 import { HourRange } from "@/components/hour-range";
@@ -36,6 +36,7 @@ function HousePage() {
   const blockSiteForPerson = useLinewatch((s) => s.blockSiteForPerson);
   const [q, setQ] = useState("");
   const [host, setHost] = useState("");
+  const [visibleSites, setVisibleSites] = useState(20);
   const people = owners(devices);
   const sites = useMemo(() => {
     const all = siteLog(events);
@@ -43,6 +44,10 @@ function HousePage() {
     if (!s) return all;
     return all.filter((x) => x.host.includes(s) || x.label.toLowerCase().includes(s) || x.people.some((p) => p.toLowerCase().includes(s)));
   }, [events, q]);
+
+  useEffect(() => {
+    setVisibleSites(20);
+  }, [q]);
 
   return (
     <AppShell>
@@ -224,7 +229,7 @@ function HousePage() {
             />
           </div>
           <ul className="overflow-hidden rounded-lg bg-surface shadow-[var(--shadow-border)]">
-            {sites.slice(0, 80).map((s) => (
+            {sites.slice(0, visibleSites).map((s) => (
               <li key={s.host} className="border-b border-border px-4 py-3 last:border-b-0">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div className="min-w-0">
@@ -260,6 +265,16 @@ function HousePage() {
               </li>
             ))}
           </ul>
+          {sites.length > visibleSites ? (
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-muted">
+                Showing {visibleSites} of {sites.length} sites
+              </p>
+              <Button size="sm" variant="outline" onClick={() => setVisibleSites((n) => Math.min(n + 20, sites.length))}>
+                Show 20 more
+              </Button>
+            </div>
+          ) : null}
         </section>
         <EventDetail />
       </div>

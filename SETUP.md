@@ -10,7 +10,7 @@ The computer is the watch. The phone is the window.
 2. Double-click:
    - Mac: `install/macos/Install Linewatch.command`
    - Windows: `install/windows/Install-Linewatch.bat`
-3. A browser opens the parent desk. Keep that computer awake.
+3. Approve the one administrator prompt. A browser opens the parent desk and the always-on service starts.
 4. On the **router**, set DNS to this computer’s address (the installer prints it).
 5. On your phone, same Wi-Fi: open Linewatch → it finds the computer → Add to Home Screen.
 
@@ -48,7 +48,7 @@ sudo cp collector/linewatch.service /etc/systemd/system/linewatch.service
 sudo systemctl enable --now linewatch
 ```
 
-Mac: Login Item for `Install Linewatch.command`. Windows: Task Scheduler on the `.bat`.
+The click installers create the macOS LaunchDaemon or Windows startup task automatically. You may close the installer and browser; keep the collector computer powered on.
 
 The **phone can close**. This computer is the watch. Logs older than **7 days** are overwritten.
 

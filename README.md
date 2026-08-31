@@ -21,7 +21,7 @@ Public source: [github.com/grummpy/linewatch](https://github.com/grummpy/linewat
 | Windows | `install/windows/Install-Linewatch.bat` |
 | Linux | `install/linux/install.sh` |
 
-That starts house DNS and opens the parent desk. Then one step you still do
+That installs an always-on background service, starts house DNS, and opens the parent desk. Then one step you still do
 on the router: DNS = this computer.
 
 Python and Java collectors live in `collector/python` and `collector/java`

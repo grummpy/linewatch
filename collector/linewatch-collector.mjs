@@ -15,7 +15,6 @@
 import dgram from "node:dgram";
 import fs from "node:fs";
 import http from "node:http";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -382,7 +381,7 @@ function tailFile(filePath) {
 function listenSyslog(port) {
   const sock = dgram.createSocket("udp4");
   sock.on("message", (msg, rinfo) => {
-    const text = msg.toString("utf8").replace(/\u0000/g, "").trim();
+    const text = msg.toString("utf8").split("\0").join("").trim();
     const parsed = parseQueryLine(text);
     if (parsed) applyDecision(parsed.host, parsed.sourceIp, Date.now());
     else if (/\.[a-z]{2,}/i.test(text) && rinfo?.address) {
@@ -416,6 +415,11 @@ function forwardDns(packet) {
     });
     sock.on("error", () => {
       clearTimeout(t);
+      try {
+        sock.close();
+      } catch {
+        /* */
+      }
       resolve(null);
     });
     sock.send(packet, 53, UPSTREAM);
@@ -461,11 +465,14 @@ function readBody(req) {
   return new Promise((resolve) => {
     const chunks = [];
     let n = 0;
+    let tooLarge = false;
     req.on("data", (c) => {
       n += c.length;
-      if (n < 200_000) chunks.push(c);
+      if (n <= 200_000) chunks.push(c);
+      else tooLarge = true;
     });
     req.on("end", () => {
+      if (tooLarge) return resolve({});
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
       } catch {
@@ -473,6 +480,15 @@ function readBody(req) {
       }
     });
   });
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function insightsNow() {
@@ -491,7 +507,7 @@ function htmlPage(state) {
     .reverse()
     .map(
       (e) =>
-        `<tr><td>${new Date(e.ts).toLocaleTimeString()}</td><td>${e.owner}</td><td>${e.sourceIp}</td><td>${e.host}</td><td>${e.category}</td><td>${e.action}</td><td>${e.reason}</td></tr>`,
+        `<tr><td>${escapeHtml(new Date(e.ts).toLocaleTimeString())}</td><td>${escapeHtml(e.owner)}</td><td>${escapeHtml(e.sourceIp)}</td><td>${escapeHtml(e.host)}</td><td>${escapeHtml(e.category)}</td><td>${escapeHtml(e.action)}</td><td>${escapeHtml(e.reason)}</td></tr>`,
     )
     .join("");
   const q = Object.keys(policy.quarantine || {});
@@ -516,24 +532,24 @@ function htmlPage(state) {
   <div class="card">
     <p class="muted">LINEWATCH · HOUSE DNS</p>
     <h1>This computer is the watch</h1>
-    <p>This computer: <code>${state.lanIp || "—"}</code></p>
-    <p>Router: <code>${state.gateway || "—"}</code> · ${state.router.label}</p>
+    <p>This computer: <code>${escapeHtml(state.lanIp || "—")}</code></p>
+    <p>Router: <code>${escapeHtml(state.gateway || "—")}</code> · ${escapeHtml(state.router.label)}</p>
     <p>House DNS ${dnsPortBound ? "is on" : "needs an administrator start"} · API ready for the phone</p>
     <p class="muted">Keep this computer on. Close the phone — logs still write. Older than 7 days is overwritten.</p>
-    <p class="muted">On the router, set DNS to <code>${state.lanIp}</code>. Open Linewatch on your phone on this Wi-Fi.</p>
+    <p class="muted">On the router, set DNS to <code>${escapeHtml(state.lanIp)}</code>. Open Linewatch on your phone on this Wi-Fi.</p>
   </div>
   <div class="card">
     <h2>Today</h2>
-    ${(ins.sentences || []).map((s) => `<p>${s}</p>`).join("") || "<p class='muted'>Waiting on queries.</p>"}
+    ${(ins.sentences || []).map((s) => `<p>${escapeHtml(s)}</p>`).join("") || "<p class='muted'>Waiting on queries.</p>"}
     <p class="muted">${ins.queries} lookups · ${ins.blocked} blocked · ${ins.adultAttempts} adult</p>
-    ${q.length ? `<p>Isolated devices: ${q.join(", ")}</p>` : ""}
+    ${q.length ? `<p>Isolated devices: ${q.map(escapeHtml).join(", ")}</p>` : ""}
     <p>
       <button type="button" onclick="fetch('/scan',{method:'POST'}).then(()=>location.reload())">Scan this Wi-Fi</button>
       <button class="ghost" type="button" onclick="location.reload()">Refresh</button>
     </p>
     ${
       lastScan?.findings?.length
-        ? `<ul>${lastScan.findings.map((f) => `<li>${f.sentence}</li>`).join("")}</ul>`
+        ? `<ul>${lastScan.findings.map((f) => `<li>${escapeHtml(f.sentence)}</li>`).join("")}</ul>`
         : lastScan
           ? "<p class='muted'>Last scan found nothing open on the usual danger ports.</p>"
           : ""

@@ -91,8 +91,13 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("Starting house DNS + parent API…");
-  start(node, [collectorJs], { LINEWATCH_DATA: DATA });
+  const deskOnly = process.argv.includes("--desk-only");
+  if (!deskOnly) {
+    console.log("Starting house DNS + parent API…");
+    start(node, [collectorJs], { LINEWATCH_DATA: DATA });
+  } else {
+    console.log("Always-on house service installed. Waiting for it…");
+  }
 
   const ready = await waitHttp("http://127.0.0.1:8787/status");
   if (!ready) {
@@ -110,7 +115,7 @@ async function main() {
   if (ip) console.log(`  Address on this Wi-Fi: ${ip}`);
   console.log("  1. On your router, set DNS to this computer.");
   console.log("  2. On your phone (same Wi-Fi), open Linewatch — it finds this box.");
-  console.log("  3. Keep this window open, or use the always-on service in SETUP.");
+  console.log(deskOnly ? "  3. You can close this window. Linewatch keeps running." : "  3. Keep this window open, or install the always-on service in SETUP.");
   console.log("");
   openBrowser(desk);
 }

@@ -39,7 +39,7 @@ function DevicesPage() {
         </header>
 
         <ul className="grid gap-3 md:grid-cols-2">
-          {stats.map(({ device, count, bytes, adult, last }) => {
+          {stats.map(({ device, count, adult, last }) => {
             const online = now - device.lastSeen < 90_000;
             const isEdit = editing === device.id;
             return (
