@@ -2,6 +2,18 @@
 
 Household internet watch. Linewatch classifies outbound traffic leaving the house, splits **Amazon Sidewalk** from **WAN data**, filters by person, and alerts when a kid’s device hits an adult destination.
 
+**Public repo:** [github.com/grummpy/linewatch](https://github.com/grummpy/linewatch)
+
+## Put it on your phone
+
+Linewatch is a Home Screen web app, not an App Store / Play binary. The Drive zip is source for a computer — it will not install on a phone.
+
+Full steps: **[PHONE.md](./PHONE.md)**
+
+- **iPhone (iOS 16+):** open Linewatch in **Safari** → Share → **Add to Home Screen**
+- **Android 10+:** open Linewatch in **Chrome** → **Install app**
+- **Google Drive:** [Linewatch folder](https://drive.google.com/drive/folders/1dov_LjlNvk5ybb0hsNBPws84ws9XzL_H) — keep the zip, reports, and the phone guide there. Share that folder to your other devices.
+
 ## What it does
 
 - **Live operations** — every hit with person, device, source IP, dest IP, host, path (WAN / Sidewalk / Amazon net), genre, and size
@@ -10,7 +22,7 @@ Household internet watch. Linewatch classifies outbound traffic leaving the hous
 - **Site log** — filter hosts, deny for the house, or block per profile
 - **Log repository** — auto-archives every 50 events (and every few minutes if traffic is light); download CSV
 - **Adult alerts** — device, IP, host, time; sound + optional desktop notifications
-- **Installable app** — same desk on Windows 11, iPhone (iOS 16+ Safari Add to Home Screen), Android 10+ Chrome, and Mac (Add to Dock)
+- **Installable app** — same desk on Windows 11, iPhone, Android, and Mac (Add to Dock)
 
 ## Honest limits
 
