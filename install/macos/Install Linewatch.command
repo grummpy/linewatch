@@ -11,10 +11,15 @@ fi
 
 ROOT="$PWD"
 NODE_BIN="$(command -v node)"
-PLIST_TMP="$(mktemp -t linewatch.XXXXXX.plist)"
+PLIST_TMP="$(mktemp /tmp/linewatch-plist.XXXXXX)"
+STAGE_DIR="$(mktemp -d /tmp/linewatch-stage.XXXXXX)"
 SCRIPT_TMP="/tmp/linewatch-install-$$.sh"
-cleanup() { rm -f "$PLIST_TMP" "$SCRIPT_TMP"; }
+cleanup() { rm -f "$PLIST_TMP" "$SCRIPT_TMP"; rm -rf "$STAGE_DIR"; }
 trap cleanup EXIT
+
+# Copy out of Documents before elevation. macOS privacy controls can prevent
+# an administrator process launched by AppleScript from reading Documents.
+cp -R "$ROOT/collector" "$STAGE_DIR/collector"
 
 xml_escape() {
   printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'
@@ -39,7 +44,7 @@ echo "Linewatch needs your Mac password once to install its always-on DNS servic
 {
   echo '#!/bin/bash'
   echo 'set -e'
-  printf 'SOURCE=%q\n' "$ROOT/collector"
+  printf 'SOURCE=%q\n' "$STAGE_DIR/collector"
   printf 'PLIST=%q\n' "$PLIST_TMP"
   cat <<'ROOT_SCRIPT'
 mkdir -p '/Library/Application Support/Linewatch/app'
