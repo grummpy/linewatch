@@ -4,6 +4,24 @@ Household internet watch. Linewatch classifies outbound traffic leaving the hous
 
 **Public repo:** [github.com/grummpy/linewatch](https://github.com/grummpy/linewatch)
 
+## Watch your own router
+
+A browser cannot sniff the WAN. Whoever downloads Linewatch watches **their** house by running the collector on a computer that stays on the home Wi-Fi:
+
+```bash
+npm run collector
+```
+
+It finds this computer’s LAN IP and the default gateway (usually the router), fingerprints the admin page if it answers, and listens for syslog/DNS on UDP 5514.
+
+1. Point the router (or Pi-hole) at that LAN IP.
+2. In Linewatch → **Setup → Your house** → paste `http://THAT_IP:8787` → Connect.
+3. Live operations switches from the demo household to real queries.
+
+Pi-hole: `LINEWATCH_DNS_LOG=/var/log/pihole.log npm run collector`
+
+ISP gateways (eero / Nest / many cable modems) often cannot syslog. Use Pi-hole as DNS, then tail that log.
+
 ## Put it on your phone
 
 Linewatch is a Home Screen web app, not an App Store / Play binary. The Drive zip is source for a computer — it will not install on a phone.

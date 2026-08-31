@@ -12,16 +12,16 @@ GitHub (public): https://github.com/grummpy/linewatch
 
 ## 1. Open Linewatch on the phone
 
-You need the **running** Linewatch desk, not the zip.
+Open the **running** Linewatch desk, not the zip.
 
-1. On the computer (or in Grok) open Linewatch so you can see Live / People / House.
-2. Copy the Linewatch address from the browser.
-3. Text that address to yourself, or paste it into a note in Drive.
-4. On the phone, open that address:
-   - **iPhone:** must be **Safari** (Chrome on iPhone cannot add Home Screen apps)
-   - **Android:** use **Chrome**
+1. On a computer on home Wi-Fi, run `node collector/linewatch-collector.mjs` (or `npm run collector`).
+2. It prints this computer’s IP and a router/gateway guess.
+3. Point the router’s syslog or DNS log at that IP, UDP 5514.
+4. On the phone, open Linewatch in Safari (iPhone) or Chrome (Android).
+5. **Setup → Your house** → paste `http://THAT_IP:8787` → Connect.
+6. Then pin Linewatch to the Home Screen (steps below).
 
-If you are already looking at Linewatch in Grok on this phone, skip to step 2 — then use Safari/Chrome on the same address if Grok is inside another browser.
+The Drive zip is source. Unzipping it on a phone will not watch the router.
 
 ---
 

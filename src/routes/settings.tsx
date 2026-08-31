@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { HouseConnect } from "@/components/house-connect";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useLinewatch } from "@/lib/linewatch/store";
@@ -37,6 +38,8 @@ function SettingsPage() {
             house from your pocket.
           </p>
         </header>
+
+        <HouseConnect />
 
         <section className="rounded-lg bg-surface p-4 shadow-[var(--shadow-border)] md:p-5">
           <h2 className="text-sm font-medium">Install the app</h2>
@@ -143,15 +146,15 @@ function SettingsPage() {
         </section>
 
         <section className="rounded-lg bg-surface p-4 shadow-[var(--shadow-border)] md:p-5">
-          <h2 className="text-sm font-medium">Collector</h2>
+          <h2 className="text-sm font-medium">Demo collector</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            A phone or PC cannot sniff the router’s WAN port by itself. Linewatch classifies
-            whatever a collector feeds it — DNS logs, a Pi-hole export, or the live demo household
-            running now. Sidewalk is tagged from Amazon / Ring / Tile hosts, not the 900 MHz radio.
+            Until your router is pointed at the house collector, Linewatch runs a labeled demo
+            household so you can learn the desk. Pause that here. Sidewalk is tagged from Amazon /
+            Ring / Tile hosts, not the 900 MHz radio.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => (running ? stop() : start())}>
-              {running ? "Pause collector" : "Resume collector"}
+              {running ? "Pause demo feed" : "Resume demo feed"}
             </Button>
             <Button variant="danger" onClick={fireDemoAlert}>
               Fire adult sample

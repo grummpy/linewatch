@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertBanner } from "@/components/alert-banner";
 import { AppShell } from "@/components/app-shell";
 import { EventDetail } from "@/components/event-detail";
@@ -11,6 +11,9 @@ export const Route = createFileRoute("/")({ component: Home });
 function Home() {
   const running = useLinewatch((s) => s.running);
   const mode = useLinewatch((s) => s.rules.firewallMode);
+  const houseSource = useLinewatch((s) => s.houseSource);
+  const collectorStatus = useLinewatch((s) => s.collectorStatus);
+  const house = houseSource === "house";
 
   return (
     <AppShell>
@@ -19,14 +22,28 @@ function Home() {
           <div>
             <h1 className="text-2xl font-medium tracking-tight md:text-3xl">Live operations</h1>
             <p className="mt-1 max-w-xl text-sm text-muted">
-              Filter a person. Split Amazon Sidewalk from WAN data. Location flags mean a maps or
-              weather host — not a GPS pin.
+              {house
+                ? "This feed is your LAN — collector to the router. Filter a person, split Sidewalk from WAN."
+                : "Demo household until you connect a collector. Filter a person. Split Sidewalk from WAN."}
             </p>
           </div>
           <p className="font-mono text-[11px] tracking-wide text-subtle uppercase">
-            {running ? `Collector live · firewall ${mode}` : "Collector idle"}
+            {house
+              ? `House ${collectorStatus?.gateway ?? "line"} · firewall ${mode}`
+              : running
+                ? `Demo live · firewall ${mode}`
+                : "Idle"}
           </p>
         </header>
+        {!house ? (
+          <p className="rounded-lg bg-elevated px-4 py-3 text-sm text-muted">
+            Riley / Sam are a demo. To watch the real router, open{" "}
+            <Link to="/settings" className="text-fg underline-offset-2 hover:underline">
+              Setup → Your house
+            </Link>{" "}
+            and run the collector on a computer on your Wi-Fi.
+          </p>
+        ) : null}
         <AlertBanner />
         <KpiStrip />
         <LiveFeed />

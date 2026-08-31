@@ -135,7 +135,7 @@ export function isEventBlocked(opts: { host: string; device: Device; rules: Rule
 
 const DNS_QUERY =
   /(?:query\[A(?:AAA)?\]\s+)?([a-z0-9.-]+\.[a-z]{2,})\s+from\s+((?:\d{1,3}\.){3}\d{1,3})/i;
-const CSV_LINE = /^([^,]+),((?:\d{1,3}\.){3}\d{1,3}),([a-z0-9.-]+\.[a-z]{2,})/i;
+const CSV_LINE = /^([^,]+),((?:\d{1,3}\.){3}\d{1,3}),([a-z0-9.-]+\.[a-z]{2,})\s*$/i;
 const SIMPLE = /((?:\d{1,3}\.){3}\d{1,3})\s+([a-z0-9.-]+\.[a-z]{2,})/i;
 
 export type ParsedLogLine = {

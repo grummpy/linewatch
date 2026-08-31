@@ -4,6 +4,7 @@ import { playAlertTone, playWatchTone } from "./audio";
 import { HOUSEHOLD } from "./catalog";
 import { destRegionFor, parseLogLine } from "./classify";
 import { newId } from "./format";
+import { fetchCollectorStatus, normalizeCollectorUrlExport, probeLan as probeLanNet, pullCollectorEvents, type CollectorStatus, type LanProbe } from "./lan";
 import { eventsToArchiveRows } from "./selectors";
 import { adultSample, eventFromLog, generateHistory, randomEvent } from "./simulate";
 import {
@@ -17,6 +18,8 @@ import {
   type TrafficEvent,
 } from "./types";
 
+export type HouseSource = "demo" | "house";
+
 const STORAGE_KEY = "linewatch-v2";
 const MAX_EVENTS = 800;
 const MAX_ALERTS = 200;
@@ -29,6 +32,8 @@ type Persisted = {
   events: TrafficEvent[];
   alerts: Alert[];
   archives: Archive[];
+  houseSource?: HouseSource;
+  collectorUrl?: string;
 };
 
 type LinewatchState = {
@@ -45,6 +50,10 @@ type LinewatchState = {
   selectedEventId: string | null;
   ingestNote: string | null;
   eventsPerMin: number;
+  houseSource: HouseSource;
+  collectorUrl: string;
+  collectorStatus: CollectorStatus | null;
+  lanProbe: LanProbe | null;
   hydrate: () => void;
   start: () => void;
   stop: () => void;
@@ -65,17 +74,29 @@ type LinewatchState = {
   ingestLog: (text: string) => number;
   fireDemoAlert: () => void;
   flushArchive: () => void;
+  probeLan: () => Promise<LanProbe>;
+  setCollectorUrl: (url: string) => void;
+  connectCollector: (url?: string) => Promise<CollectorStatus>;
+  disconnectCollector: () => void;
+  useDemoHouse: () => void;
 };
 
 let tick: ReturnType<typeof setInterval> | null = null;
 let archiveTick: ReturnType<typeof setInterval> | null = null;
 let firstAlertTimer: ReturnType<typeof setTimeout> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let collectorTick: ReturnType<typeof setInterval> | null = null;
 let sessionAlerted = false;
 let sinceArchive = 0;
+let collectorSince = 0;
 const recentTimes: number[] = [];
 
-function persist(state: Pick<LinewatchState, "devices" | "rules" | "events" | "alerts" | "archives">) {
+function persist(
+  state: Pick<
+    LinewatchState,
+    "devices" | "rules" | "events" | "alerts" | "archives" | "houseSource" | "collectorUrl"
+  >,
+) {
   if (typeof localStorage === "undefined") return;
   const payload: Persisted = {
     devices: state.devices,
@@ -83,6 +104,8 @@ function persist(state: Pick<LinewatchState, "devices" | "rules" | "events" | "a
     events: state.events.slice(-500),
     alerts: state.alerts.slice(0, 120),
     archives: state.archives.slice(0, MAX_ARCHIVES),
+    houseSource: state.houseSource,
+    collectorUrl: state.collectorUrl,
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -101,6 +124,8 @@ function schedulePersist(get: () => LinewatchState) {
       events: s.events,
       alerts: s.alerts,
       archives: s.archives,
+      houseSource: s.houseSource,
+      collectorUrl: s.collectorUrl,
     });
   }, 400);
 }
@@ -219,6 +244,10 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   selectedEventId: null,
   ingestNote: null,
   eventsPerMin: 0,
+  houseSource: "demo",
+  collectorUrl: "",
+  collectorStatus: null,
+  lanProbe: null,
 
   hydrate: () => {
     if (get().ready) return;
@@ -228,6 +257,8 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     let events: TrafficEvent[] = [];
     let alerts: Alert[] = [];
     let archives: Archive[] = [];
+    let houseSource: HouseSource = "demo";
+    let collectorUrl = "";
     try {
       const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem("linewatch-v1");
       if (raw) {
@@ -255,11 +286,13 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
         }
         if (Array.isArray(saved.alerts)) alerts = saved.alerts;
         if (Array.isArray(saved.archives)) archives = saved.archives;
+        if (saved.houseSource === "house" || saved.houseSource === "demo") houseSource = saved.houseSource;
+        if (typeof saved.collectorUrl === "string") collectorUrl = saved.collectorUrl;
       }
     } catch {
       /* fresh */
     }
-    if (events.length < 40) {
+    if (houseSource !== "house" && events.length < 40) {
       events = generateHistory(devices, rules, now);
       alerts = events
         .filter((e) => e.risk === "alert" || e.risk === "watch")
@@ -277,6 +310,8 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       events,
       alerts,
       archives,
+      houseSource,
+      collectorUrl,
     });
   },
 
@@ -286,7 +321,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     set({ running: true });
     tick = setInterval(() => {
       const s = get();
-      if (!s.running) return;
+      if (!s.running || s.houseSource === "house") return;
       const event = randomEvent(s.devices, s.rules, Date.now());
       ingestEvent(set, get, event);
       const t = Date.now();
@@ -300,11 +335,15 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       if (sinceArchive >= 8) get().flushArchive();
     }, 180_000);
 
+    if (get().houseSource === "house" && get().collectorUrl) {
+      void get().connectCollector(get().collectorUrl);
+    }
+
     if (!sessionAlerted) {
       firstAlertTimer = setTimeout(() => {
         sessionAlerted = true;
         const s = get();
-        if (!s.running) return;
+        if (!s.running || s.houseSource === "house") return;
         const recentAdult = s.events.some((e) => e.category === "adult" && e.ts > Date.now() - 20_000);
         if (recentAdult) return;
         const sample = adultSample(s.devices, s.rules, Date.now());
@@ -321,6 +360,8 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     archiveTick = null;
     if (firstAlertTimer) clearTimeout(firstAlertTimer);
     firstAlertTimer = null;
+    if (collectorTick) clearInterval(collectorTick);
+    collectorTick = null;
     set({ running: false });
     schedulePersist(get);
   },
@@ -464,7 +505,8 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       count += 1;
     }
     set({
-      ingestNote: count ? `Ingested ${count} line${count === 1 ? "" : "s"}.` : "No parseable lines.",
+      ingestNote: count ? `Ingested ${count} line${count === 1 ? "" : "s"} from your log.` : "No parseable lines.",
+      houseSource: count ? "house" : get().houseSource,
     });
     schedulePersist(get);
     return count;
@@ -483,6 +525,77 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     if (!arc) return;
     sinceArchive = 0;
     set({ archives: [arc, ...s.archives].slice(0, MAX_ARCHIVES) });
+    schedulePersist(get);
+  },
+
+  probeLan: async () => {
+    const lan = await probeLanNet();
+    set({ lanProbe: lan });
+    return lan;
+  },
+
+  setCollectorUrl: (collectorUrl) => {
+    set({ collectorUrl });
+    schedulePersist(get);
+  },
+
+  connectCollector: async (url) => {
+    const target = normalizeCollectorUrlExport(url ?? get().collectorUrl);
+    set({ collectorUrl: target });
+    const status = await fetchCollectorStatus(target);
+    set({ collectorStatus: status });
+    if (!status.ok) {
+      schedulePersist(get);
+      return status;
+    }
+    collectorSince = Date.now() - 60_000;
+    if (collectorTick) clearInterval(collectorTick);
+    const pull = async () => {
+      try {
+        const rows = await pullCollectorEvents(target, collectorSince);
+        if (rows.length) {
+          for (const row of rows) {
+            if (row.ts > collectorSince) collectorSince = row.ts;
+          }
+          const text = rows
+            .map((row) => `${new Date(row.ts).toISOString()},${row.sourceIp},${row.host}`)
+            .join("\n");
+          get().ingestLog(text);
+          const t = Date.now();
+          recentTimes.push(t);
+          while (recentTimes[0] && recentTimes[0] < t - 60_000) recentTimes.shift();
+          set({ eventsPerMin: recentTimes.length, now: t });
+        }
+        const next = await fetchCollectorStatus(target);
+        set({ collectorStatus: next, houseSource: "house" });
+      } catch (err) {
+        set({
+          collectorStatus: {
+            ok: false,
+            error: err instanceof Error ? err.message : "Collector pull failed",
+          },
+        });
+      }
+    };
+    await pull();
+    collectorTick = setInterval(() => void pull(), 2500);
+    set({ houseSource: "house", ingestNote: `Connected to collector ${target}` });
+    toast.success("House collector connected", { description: status.router?.label ?? status.gateway ?? target });
+    schedulePersist(get);
+    return status;
+  },
+
+  disconnectCollector: () => {
+    if (collectorTick) clearInterval(collectorTick);
+    collectorTick = null;
+    set({ collectorStatus: null });
+    schedulePersist(get);
+  },
+
+  useDemoHouse: () => {
+    if (collectorTick) clearInterval(collectorTick);
+    collectorTick = null;
+    set({ houseSource: "demo", collectorStatus: null });
     schedulePersist(get);
   },
 }));
