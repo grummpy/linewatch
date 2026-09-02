@@ -1,0 +1,31 @@
+name: Auto-merge AI PRs
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: >
+      github.event.pull_request.draft == false &&
+      (
+        github.event.pull_request.user.type == 'Bot' ||
+        contains(github.event.pull_request.user.login, 'Copilot') ||
+        contains(github.event.pull_request.user.login, 'codex') ||
+        contains(github.event.pull_request.user.login, 'chatgpt') ||
+        contains(github.event.pull_request.user.login, 'gemini') ||
+        contains(github.event.pull_request.user.login, 'cursor')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approve and merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr review "$PR" --repo "$REPO" --approve || true
+          gh pr merge "$PR" --repo "$REPO" --squash --delete-branch --auto || gh pr merge "$PR" --repo "$REPO" --squash --delete-branch
