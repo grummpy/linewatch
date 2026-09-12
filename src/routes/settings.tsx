@@ -3,7 +3,7 @@
  * Copyright (c) 2026 Chris Decker
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { HouseConnect } from "@/components/house-connect";
 import { ScanPanel } from "@/components/scan-panel";
@@ -26,9 +26,42 @@ function SettingsPage() {
   const removeFromBlocklist = useLinewatch((s) => s.removeFromBlocklist);
   const [log, setLog] = useState("");
   const [blockHost, setBlockHost] = useState("");
-  const [updateState, setUpdateState] = useState<"idle" | "running" | "succeeded" | "failed">("idle");
-  const [updateMessage, setUpdateMessage] = useState("Pull, install, and restart from GitHub without opening Terminal.");
+  const [updateState, setUpdateState] = useState<"checking" | "available" | "current" | "blocked" | "running" | "succeeded" | "failed">("checking");
+  const [updateMessage, setUpdateMessage] = useState("Checking the published GitHub version…");
   const updatePoll = useRef<number | null>(null);
+
+  const checkForUpdate = useCallback(async () => {
+    setUpdateState("checking");
+    setUpdateMessage("Checking the published GitHub version…");
+    try {
+      const response = await fetch("/api/system/update-check", { cache: "no-store" });
+      if (!response.ok) throw new Error("GitHub could not be checked right now.");
+      const result = await response.json();
+      const versions = `Installed ${result.currentVersion} · Published ${result.publishedVersion}`;
+      if (result.updateReady && result.localChanges) {
+        setUpdateState("blocked");
+        setUpdateMessage(`${versions}. An update is ready, but tracked local changes need review first. Your household data is protected.`);
+      } else if (result.updateReady) {
+        setUpdateState("available");
+        setUpdateMessage(`${versions}. An update is ready. Your household setup and saved data will be preserved.`);
+      } else {
+        setUpdateState("current");
+        setUpdateMessage(`${versions}. LineWatch is up to date.`);
+      }
+    } catch (error) {
+      setUpdateState("failed");
+      setUpdateMessage(error instanceof Error ? error.message : "GitHub could not be checked right now.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkForUpdate();
+    const interval = window.setInterval(() => void checkForUpdate(), 15 * 60_000);
+    return () => {
+      window.clearInterval(interval);
+      if (updatePoll.current) window.clearTimeout(updatePoll.current);
+    };
+  }, [checkForUpdate]);
 
   async function updateAndRestart() {
     setUpdateState("running");
@@ -92,8 +125,12 @@ function SettingsPage() {
           <p className="mt-2 text-sm leading-relaxed text-muted" role="status" aria-live="polite">
             {updateMessage}
           </p>
-          <Button className="mt-4" disabled={updateState === "running"} onClick={() => void updateAndRestart()}>
-            {updateState === "running" ? "Updating…" : updateState === "succeeded" ? "Restarting…" : "Update & Restart"}
+          <Button
+            className={updateState === "available" ? "mt-4 animate-pulse bg-emerald-500 text-slate-950 shadow-[0_0_22px_rgba(16,185,129,0.5)] [animation-duration:2.8s] hover:bg-emerald-400 motion-reduce:animate-none" : "mt-4"}
+            disabled={["checking", "current", "blocked", "running", "succeeded"].includes(updateState)}
+            onClick={() => updateState === "failed" ? void checkForUpdate() : void updateAndRestart()}
+          >
+            {updateState === "checking" ? "Checking…" : updateState === "available" ? "Update & Restart" : updateState === "current" ? "Up to Date" : updateState === "blocked" ? "Local Changes Need Review" : updateState === "running" ? "Updating…" : updateState === "succeeded" ? "Restarting…" : "Check Again"}
           </Button>
         </section>
 

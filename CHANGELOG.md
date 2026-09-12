@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7 — 2026-09-12
+
+- Added automatic installed-versus-published Git version checks on Setup.
+- The update button now pulses slowly in green only when `origin/main` is ahead and stops as soon as installation begins.
+- The interface reports protected local edits and keeps household setup and saved data outside the update path.
+
 ## 0.1.6 — 2026-09-12
 
 - Ensured production-triggered updates install the build-time packages required by Vite and Nitro.

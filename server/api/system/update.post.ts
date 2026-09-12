@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { createError, defineEventHandler, getRequestHost, getRequestIP } from "h3";
 
 function requireLocalRequest(event: Parameters<typeof getRequestIP>[0]) {
@@ -13,7 +16,7 @@ function requireLocalRequest(event: Parameters<typeof getRequestIP>[0]) {
   }
 }
 
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   requireLocalRequest(event);
   const root = process.cwd();
   const script = `${root}/scripts/update-and-restart.sh`;
@@ -22,6 +25,13 @@ export default defineEventHandler((event) => {
   } catch {
     throw createError({ statusCode: 500, statusMessage: "The update helper is unavailable." });
   }
+
+  const stateDirectory = join(homedir(), "Library/Application Support/Linewatch");
+  await mkdir(stateDirectory, { recursive: true });
+  await writeFile(
+    join(stateDirectory, "update-status.json"),
+    JSON.stringify({ state: "running", message: "Checking GitHub for updates…", version: null, updatedAt: new Date().toISOString() }),
+  );
 
   const child = spawn("/bin/bash", [script], {
     cwd: root,
