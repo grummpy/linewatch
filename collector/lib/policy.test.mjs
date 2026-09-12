@@ -13,7 +13,30 @@ import {
   shouldQuarantine,
   sentenceFor,
   inWindow,
+  removeBundledDemoData,
 } from "./policy.mjs";
+
+test("bundled demo household is removed without touching policy settings", () => {
+  const input = defaultPolicy();
+  input.firewallMode = "monitor";
+  input.devices = [{ ip: "192.168.1.24", mac: "A4:83:E7:2C:91:04", name: "Riley's iPhone", owner: "Riley", role: "child" }];
+  input.profiles = { Riley: { role: "child", blocks: [] } };
+  input.quarantine = { "a4:83:e7:2c:91:04": { since: 1 } };
+  const result = removeBundledDemoData(input);
+  assert.equal(result.removed, true);
+  assert.deepEqual(result.policy.devices, []);
+  assert.deepEqual(result.policy.profiles, {});
+  assert.deepEqual(result.policy.quarantine, {});
+  assert.equal(result.policy.firewallMode, "monitor");
+});
+
+test("real household data is never removed by demo migration", () => {
+  const input = defaultPolicy();
+  input.devices = [{ ip: "192.168.4.20", mac: "00:11:22:33:44:55", name: "Family phone", owner: "Family", role: "parent" }];
+  const result = removeBundledDemoData(input);
+  assert.equal(result.removed, false);
+  assert.equal(result.policy.devices.length, 1);
+});
 
 function childPolicy(extra = {}) {
   const p = defaultPolicy();

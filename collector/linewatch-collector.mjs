@@ -25,6 +25,7 @@ import {
   buildInsights,
   decide,
   mergePolicy,
+  removeBundledDemoData,
   defaultPolicy,
   sentenceFor,
   shouldAlert,
@@ -580,19 +581,11 @@ async function main() {
   note(`Router guess: ${router.label}`);
 
   loadDisk();
-  if (!policy.devices.length) {
-    policy.devices = [
-      { ip: "192.168.1.24", mac: "A4:83:E7:2C:91:04", name: "Riley's iPhone", owner: "Riley", role: "child" },
-      { ip: "192.168.1.31", mac: "F0:18:98:6A:22:B1", name: "Sam's iPad", owner: "Sam", role: "child" },
-      { ip: "192.168.1.12", mac: "3C:22:FB:11:08:C2", name: "Jordan's MacBook", owner: "Jordan", role: "parent" },
-      { ip: "192.168.1.18", mac: "D8:8F:76:40:AA:19", name: "Avery's iPhone", owner: "Avery", role: "parent" },
-    ];
-    policy.profiles = {
-      Riley: { role: "child", autoQuarantine: true, blocks: [] },
-      Sam: { role: "child", autoQuarantine: true, blocks: [] },
-      Jordan: { role: "parent", autoQuarantine: false, blocks: [] },
-      Avery: { role: "parent", autoQuarantine: false, blocks: [] },
-    };
+  const demoMigration = removeBundledDemoData(policy);
+  policy = demoMigration.policy;
+  if (demoMigration.removed) {
+    note("Removed bundled demonstration household from live policy");
+    saveLogs();
   }
 
   setInterval(() => {

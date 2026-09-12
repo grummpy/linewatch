@@ -7,6 +7,19 @@
  */
 export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
+const BUNDLED_DEMO_MACS = new Set([
+  "a4:83:e7:2c:91:04",
+  "f0:18:98:6a:22:b1",
+  "3c:22:fb:11:08:c2",
+  "d8:8f:76:40:aa:19",
+  "7c:1e:52:09:b4:77",
+  "90:72:40:ce:33:01",
+  "10:ae:60:1d:44:2e",
+  "fc:65:de:08:91:aa",
+  "c0:97:27:4b:11:09",
+]);
+const BUNDLED_DEMO_OWNERS = new Set(["Riley", "Sam", "Jordan", "Avery", "House"]);
+
 export const ADULT = [
   "pornhub.com",
   "xvideos.com",
@@ -215,6 +228,24 @@ export function mergePolicy(saved) {
     profiles: saved.profiles && typeof saved.profiles === "object" ? saved.profiles : {},
     devices: Array.isArray(saved.devices) ? saved.devices : [],
     quarantine: saved.quarantine && typeof saved.quarantine === "object" ? saved.quarantine : {},
+  };
+}
+
+export function removeBundledDemoData(saved) {
+  const policy = mergePolicy(saved);
+  const devices = policy.devices || [];
+  const profiles = Object.keys(policy.profiles || {});
+  const onlyDemoDevices = devices.length > 0 && devices.every((device) =>
+    BUNDLED_DEMO_MACS.has(String(device.mac || "").toLowerCase()),
+  );
+  const onlyDemoProfiles = profiles.every((owner) => BUNDLED_DEMO_OWNERS.has(owner));
+  if (!onlyDemoDevices || !onlyDemoProfiles) return { policy, removed: false };
+
+  const quarantine = { ...policy.quarantine };
+  for (const mac of BUNDLED_DEMO_MACS) delete quarantine[mac];
+  return {
+    policy: { ...policy, devices: [], profiles: {}, quarantine },
+    removed: true,
   };
 }
 

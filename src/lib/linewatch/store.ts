@@ -5,7 +5,7 @@
 import { toast } from "sonner";
 import { create } from "zustand";
 import { playAlertTone, playWatchTone } from "./audio";
-import { HOUSEHOLD } from "./catalog";
+import { HOUSEHOLD, isBundledDemoDevice } from "./catalog";
 import { destRegionFor, parseLogLine } from "./classify";
 import { newId } from "./format";
 import {
@@ -424,14 +424,19 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       if (raw) {
         const saved = JSON.parse(raw) as Persisted & { rules?: Partial<Rules> };
         if (Array.isArray(saved.devices) && saved.devices.length) {
+          const loadingLiveHouse = saved.houseSource === "house";
           devices = saved.devices.map((d) => {
             const base = HOUSEHOLD.find((h) => h.id === d.id);
             return base
               ? { ...base, ...d, ip: base.ip, mac: base.mac, kind: base.kind, role: d.role ?? base.role }
               : d;
           });
-          const seen = new Set(devices.map((d) => d.id));
-          for (const h of HOUSEHOLD) if (!seen.has(h.id)) devices.push({ ...h });
+          if (loadingLiveHouse) {
+            devices = devices.filter((device) => !isBundledDemoDevice(device));
+          } else {
+            const seen = new Set(devices.map((d) => d.id));
+            for (const h of HOUSEHOLD) if (!seen.has(h.id)) devices.push({ ...h });
+          }
         }
         if (saved.rules) {
           rules = {
@@ -740,7 +745,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     }
     // Chris Decker: drop the demo family so Live is this week's real house traffic.
     if (get().houseSource !== "house") {
-      set({ events: [], alerts: [], archives: [], houseSource: "house" });
+      set({ devices: [], events: [], alerts: [], archives: [], houseSource: "house" });
     }
     collectorSince = Date.now() - WEEK_MS;
     if (collectorTick) clearInterval(collectorTick);

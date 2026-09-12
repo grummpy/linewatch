@@ -108,6 +108,12 @@ export const HOUSEHOLD: Device[] = [
   },
 ];
 
+const DEMO_DEVICE_IDS = new Set(HOUSEHOLD.map((device) => device.id));
+
+export function isBundledDemoDevice(device: Device): boolean {
+  return DEMO_DEVICE_IDS.has(device.id);
+}
+
 export const DESTINATIONS: Destination[] = [
   // Adult hosts Chris Decker classifies for household alerts (suffix match, no page body).
   { host: "pornhub.com", category: "adult", label: "Pornhub" },
