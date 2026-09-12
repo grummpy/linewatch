@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8 — Automatic launch update
+
+- LineWatch checks the published GitHub branch on desktop launch.
+- Clean installs update, restart, and verify before opening the app.
+- Tracked local code changes remain protected.
+
+
 ## 0.1.7 — 2026-09-12
 
 - Added automatic installed-versus-published Git version checks on Setup.

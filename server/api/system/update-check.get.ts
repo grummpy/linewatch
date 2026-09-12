@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { createError, defineEventHandler, getRequestHost, getRequestIP } from "h3";
 
 const execFileAsync = promisify(execFile);
+const runtimePackage = JSON.parse(readFileSync(`${process.cwd()}/package.json`, "utf8")) as { version: string };
 
 function requireLocalRequest(event: Parameters<typeof getRequestIP>[0]) {
   const ip = getRequestIP(event) ?? "";
@@ -29,11 +30,10 @@ export default defineEventHandler(async (event) => {
   const root = process.cwd();
   try {
     await git(root, ["fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
-    const [currentCommit, publishedCommit, dirty, currentPackage, publishedPackage] = await Promise.all([
+    const [currentCommit, publishedCommit, dirty, publishedPackage] = await Promise.all([
       git(root, ["rev-parse", "HEAD"]),
       git(root, ["rev-parse", "origin/main"]),
       git(root, ["status", "--porcelain", "--untracked-files=no"]),
-      readFile(`${root}/package.json`, "utf8").then((value) => JSON.parse(value)),
       git(root, ["show", "origin/main:package.json"]).then((value) => JSON.parse(value)),
     ]);
     const ancestor = currentCommit === publishedCommit
@@ -41,12 +41,14 @@ export default defineEventHandler(async (event) => {
       : await execFileAsync("/usr/bin/git", ["merge-base", "--is-ancestor", "HEAD", "origin/main"], { cwd: root })
           .then(() => true)
           .catch(() => false);
+    const runtimeVersionMismatch = runtimePackage.version !== publishedPackage.version;
     return {
-      currentVersion: currentPackage.version,
+      currentVersion: runtimePackage.version,
       publishedVersion: publishedPackage.version,
       currentCommit: currentCommit.slice(0, 7),
       publishedCommit: publishedCommit.slice(0, 7),
-      updateReady: currentCommit !== publishedCommit && ancestor,
+      runtimeVersionMismatch,
+      updateReady: (currentCommit !== publishedCommit || runtimeVersionMismatch) && ancestor,
       localChanges: Boolean(dirty),
       relationship: currentCommit === publishedCommit ? "current" : ancestor ? "behind" : "local_or_diverged",
     };
