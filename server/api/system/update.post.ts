@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createError, defineEventHandler, getRequestHost, getRequestIP } from "h3";
 
 function requireLocalRequest(event: Parameters<typeof getRequestIP>[0]) {
@@ -16,8 +15,8 @@ function requireLocalRequest(event: Parameters<typeof getRequestIP>[0]) {
 
 export default defineEventHandler((event) => {
   requireLocalRequest(event);
-  const root = fileURLToPath(new URL("../../../", import.meta.url));
-  const script = `${root}scripts/update-and-restart.sh`;
+  const root = process.cwd();
+  const script = `${root}/scripts/update-and-restart.sh`;
   try {
     accessSync(script, constants.X_OK);
   } catch {
