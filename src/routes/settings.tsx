@@ -3,7 +3,7 @@
  * Copyright (c) 2026 Chris Decker
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { HouseConnect } from "@/components/house-connect";
 import { ScanPanel } from "@/components/scan-panel";
@@ -26,6 +26,46 @@ function SettingsPage() {
   const removeFromBlocklist = useLinewatch((s) => s.removeFromBlocklist);
   const [log, setLog] = useState("");
   const [blockHost, setBlockHost] = useState("");
+  const [updateState, setUpdateState] = useState<"idle" | "running" | "succeeded" | "failed">("idle");
+  const [updateMessage, setUpdateMessage] = useState("Pull, install, and restart from GitHub without opening Terminal.");
+  const updatePoll = useRef<number | null>(null);
+
+  async function updateAndRestart() {
+    setUpdateState("running");
+    setUpdateMessage("Starting update…");
+    try {
+      const response = await fetch("/api/system/update", { method: "POST" });
+      if (!response.ok) throw new Error((await response.text()) || "Update could not start.");
+      setUpdateMessage("Checking GitHub and installing the latest release…");
+      const started = Date.now();
+      const poll = async () => {
+        try {
+          const status = await fetch("/api/system/update-status", { cache: "no-store" }).then((r) => r.json());
+          setUpdateMessage(status.message || "Updating…");
+          if (status.state === "failed") {
+            setUpdateState("failed");
+            return;
+          }
+          if (status.state === "succeeded") {
+            setUpdateState("succeeded");
+            window.setTimeout(() => window.location.reload(), 3500);
+            return;
+          }
+        } catch {
+          setUpdateMessage("LineWatch is restarting…");
+        }
+        if (Date.now() - started < 5 * 60_000) updatePoll.current = window.setTimeout(poll, 2000);
+        else {
+          setUpdateState("failed");
+          setUpdateMessage("The update is taking longer than expected. Check the update log.");
+        }
+      };
+      updatePoll.current = window.setTimeout(poll, 1000);
+    } catch (error) {
+      setUpdateState("failed");
+      setUpdateMessage(error instanceof Error ? error.message : "Update could not start.");
+    }
+  }
 
   async function enableNotify() {
     if (typeof Notification === "undefined") return;
@@ -46,6 +86,16 @@ function SettingsPage() {
         <HouseConnect />
 
         <ScanPanel />
+
+        <section className="rounded-lg bg-surface p-4 shadow-[var(--shadow-border)] md:p-5">
+          <h2 className="text-sm font-medium">Application update</h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted" role="status" aria-live="polite">
+            {updateMessage}
+          </p>
+          <Button className="mt-4" disabled={updateState === "running"} onClick={() => void updateAndRestart()}>
+            {updateState === "running" ? "Updating…" : updateState === "succeeded" ? "Restarting…" : "Update & Restart"}
+          </Button>
+        </section>
 
         <details className="text-sm">
           <summary className="cursor-pointer text-muted">Phone install, alerts, paste a log</summary>
