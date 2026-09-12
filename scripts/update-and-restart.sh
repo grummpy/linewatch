@@ -55,7 +55,7 @@ git fetch origin main
 git merge --ff-only origin/main
 
 write_status "running" "Installing dependencies…"
-/usr/local/bin/npm ci --no-audit --no-fund
+/usr/local/bin/npm ci --include=dev --no-audit --no-fund
 
 write_status "running" "Building LineWatch…"
 /usr/local/bin/npm run build

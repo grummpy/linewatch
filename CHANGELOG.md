@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6 — 2026-09-12
+
+- Ensured production-triggered updates install the build-time packages required by Vite and Nitro.
+
 ## 0.1.5 — 2026-09-12
 
 - Resolved the updater helper from the LaunchAgent working directory so it remains available after Nitro bundles the server route.
