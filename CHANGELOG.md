@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 — 2026-09-12
+
+- Allowed the local updater through Nitro's preview runtime when the socket address is unavailable but the launcher is using an explicit loopback host.
+
 ## 0.1.3 — 2026-09-12
 
 - Added a local-only **Update & Restart** control that pulls the latest Git release, installs dependencies, builds the app, and restarts the managed desktop service.
