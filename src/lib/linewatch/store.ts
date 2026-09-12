@@ -260,21 +260,22 @@ function buildArchive(events: TrafficEvent[], devices: Device[], now: number): A
 }
 
 function seedDemo(devices: Device[], rules: Rules, now: number) {
-  const events = generateHistory(devices, rules, now);
+  const demoDevices = devices.length ? devices : HOUSEHOLD.map((device) => ({ ...device }));
+  const events = generateHistory(demoDevices, rules, now);
   const alerts = events
     .filter((e) => e.risk === "alert" || e.risk === "watch" || (e.blocked && (e.category === "adult" || e.category === "vpn")))
     .slice(-40)
     .reverse()
     .map((e) => ({ ...alertFromEvent(e), acknowledged: e.ts < now - 30 * 60_000 }));
-  const seed = buildArchive(events, devices, now);
-  const hammer = devices.find((d) => d.role === "child");
+  const seed = buildArchive(events, demoDevices, now);
+  const hammer = demoDevices.find((d) => d.role === "child");
   const nextDevices = hammer
-    ? devices.map((d) =>
+    ? demoDevices.map((d) =>
         d.id === hammer.id
           ? { ...d, quarantined: true, quarantineReason: "repeated high-severity blocks" }
           : d,
       )
-    : devices;
+    : demoDevices;
   if (hammer) {
     alerts.unshift({
       id: newId("al"),
