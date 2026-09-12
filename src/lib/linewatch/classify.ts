@@ -25,6 +25,7 @@ export function normalizeHost(raw: string): string {
     .toLowerCase()
     .replace(/^https?:\/\//, "")
     .replace(/\/.*$/, "")
+    .replace(/\.$/, "")
     .replace(/:\d+$/, "")
     .replace(/^www\./, "");
 }
