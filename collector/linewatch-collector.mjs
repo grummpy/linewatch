@@ -634,6 +634,7 @@ async function main() {
     dnsPort: dnsPortBound,
     dns: Boolean(dnsPortBound),
     eventCount: logs.length,
+    lastEventAt: logs.length ? logs[logs.length - 1].ts : null,
     listening: true,
     alwaysOn: true,
     retentionDays: 7,

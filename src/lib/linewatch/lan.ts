@@ -22,6 +22,7 @@ export type CollectorStatus = {
   dnsPort?: number;
   dns?: boolean;
   eventCount?: number;
+  lastEventAt?: number | null;
   alwaysOn?: boolean;
   retentionDays?: number;
   quarantine?: string[];

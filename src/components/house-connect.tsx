@@ -30,7 +30,8 @@ export function HouseConnect() {
     setUrl(collectorUrl);
   }, [collectorUrl]);
 
-  const live = houseSource === "house" && collectorStatus?.ok;
+  const live = houseSource === "house" && collectorStatus?.ok && collectorStatus.dns === true;
+  const needsDns = houseSource === "house" && collectorStatus?.ok && collectorStatus.dns !== true;
   const routerIp = collectorStatus?.gateway || lanProbe?.likelyGateway || "";
   const prefix = routerIp ? routerIp.split(".").slice(0, 3).join(".") : "";
 
@@ -45,7 +46,7 @@ export function HouseConnect() {
           </p>
         </div>
         <span className="font-mono text-[11px] tracking-wide text-subtle uppercase">
-          {discovering ? "Finding router…" : live ? "Watching" : houseSource === "house" ? "Collector off" : "Not connected"}
+          {discovering ? "Finding router…" : live ? "Watching" : needsDns ? "DNS needs attention" : houseSource === "house" ? "Collector off" : "Not connected"}
         </span>
       </div>
 
@@ -64,6 +65,10 @@ export function HouseConnect() {
           Collector on {collectorStatus.lanIp || collectorUrl}. {collectorStatus.eventCount ?? 0}{" "}
           queries this week. Close the phone — this computer still watches. Older than 7 days is
           overwritten.
+        </p>
+      ) : needsDns ? (
+        <p className="mt-4 text-sm text-danger">
+          The collector is reachable, but it is not serving DNS. Point the router’s DNS at this computer before relying on protection.
         </p>
       ) : (
         <div className="mt-4 space-y-3 text-sm text-muted">

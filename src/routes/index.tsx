@@ -20,7 +20,8 @@ function Home() {
   const discovering = useLinewatch((s) => s.discovering);
   const lanProbe = useLinewatch((s) => s.lanProbe);
   const house = houseSource === "house";
-  const live = house && collectorStatus?.ok;
+  const live = house && collectorStatus?.ok && collectorStatus.dns === true;
+  const dnsNeedsAttention = house && collectorStatus?.ok && collectorStatus.dns !== true;
   const routerIp = collectorStatus?.gateway || lanProbe?.likelyGateway;
 
   return (
@@ -34,13 +35,17 @@ function Home() {
                 ? "Your house. This computer is DNS. The phone can close. Logs last 7 days."
                 : discovering
                   ? "Looking for your router on this Wi-Fi…"
+                : dnsNeedsAttention
+                  ? "The collector is reachable, but house DNS is not active yet."
                   : "Opens looking for your router. Connect once — the collector computer does the rest."}
             </p>
           </div>
           <p className="font-mono text-[11px] tracking-wide text-subtle uppercase">
             {discovering
               ? "Finding router"
-              : live
+                : dnsNeedsAttention
+                  ? "DNS needs attention"
+                : live
                 ? `House ${routerIp ?? "line"} · 7-day log`
                 : house
                   ? "Collector off · last 7 days"
