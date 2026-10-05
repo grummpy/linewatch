@@ -100,11 +100,16 @@ function normalizeCollectorUrl(raw: string): string {
   return u.replace(/\/+$/, "");
 }
 
-export async function fetchCollectorStatus(rawUrl: string, timeoutMs = 4000): Promise<CollectorStatus> {
+function managementHeaders(token = ""): HeadersInit | undefined {
+  const trimmed = token.trim();
+  return trimmed ? { authorization: `Bearer ${trimmed}` } : undefined;
+}
+
+export async function fetchCollectorStatus(rawUrl: string, timeoutMs = 4000, token = ""): Promise<CollectorStatus> {
   const url = normalizeCollectorUrl(rawUrl);
   if (!url) return { ok: false, error: "Enter the collector address from the computer on your Wi-Fi." };
   try {
-    const res = await fetch(`${url}/status`, { signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(`${url}/status`, { headers: managementHeaders(token), signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return { ok: false, error: `Collector answered HTTP ${res.status}` };
     const data = (await res.json()) as CollectorStatus;
     if (!data || data.ok === false) return { ok: false, error: "Collector is not Linewatch." };
@@ -121,10 +126,10 @@ export async function fetchCollectorStatus(rawUrl: string, timeoutMs = 4000): Pr
   }
 }
 
-export async function pullCollectorEvents(rawUrl: string, since: number): Promise<CollectorEvent[]> {
+export async function pullCollectorEvents(rawUrl: string, since: number, token = ""): Promise<CollectorEvent[]> {
   const url = normalizeCollectorUrl(rawUrl);
   if (!url) return [];
-  const res = await fetch(`${url}/events?since=${since}`, { signal: AbortSignal.timeout(8000) });
+  const res = await fetch(`${url}/events?since=${since}`, { headers: managementHeaders(token), signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { events?: CollectorEvent[] };
   return Array.isArray(data.events) ? data.events : [];
@@ -162,8 +167,9 @@ export function collectorUrlSuggestions(probe: LanProbe, savedUrl = ""): string[
 async function probeOne(
   url: string,
   timeout: number,
+  token: string,
 ): Promise<{ url: string; status: CollectorStatus } | null> {
-  const status = await fetchCollectorStatus(url, timeout);
+  const status = await fetchCollectorStatus(url, timeout, token);
   if (status.ok && status.service === "linewatch-collector") return { url, status };
   return null;
 }
@@ -171,32 +177,33 @@ async function probeOne(
 export async function discoverCollector(
   probe: LanProbe,
   savedUrl = "",
+  token = "",
 ): Promise<{ url: string; status: CollectorStatus } | null> {
   const urls = collectorUrlSuggestions(probe, savedUrl);
   if (!urls.length) return null;
   const priority = urls.slice(0, Math.min(4, urls.length));
   const rest = urls.slice(priority.length);
 
-  const first = await Promise.all(priority.map((u) => probeOne(u, savedUrl ? 2200 : 800)));
+  const first = await Promise.all(priority.map((u) => probeOne(u, savedUrl ? 2200 : 800, token)));
   const hit = first.find((x) => x);
   if (hit) return hit;
 
   for (let i = 0; i < rest.length; i += 8) {
     const batch = rest.slice(i, i + 8);
-    const found = await Promise.all(batch.map((u) => probeOne(u, 400)));
+    const found = await Promise.all(batch.map((u) => probeOne(u, 400, token)));
     const next = found.find((x) => x);
     if (next) return next;
   }
   return null;
 }
 
-export async function collectorPost(rawUrl: string, path: string, body: unknown): Promise<boolean> {
+export async function collectorPost(rawUrl: string, path: string, body: unknown, token = ""): Promise<boolean> {
   const url = normalizeCollectorUrl(rawUrl);
   if (!url) return false;
   try {
     const res = await fetch(`${url}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(managementHeaders(token) ?? {}) },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(8000),
     });
@@ -206,11 +213,11 @@ export async function collectorPost(rawUrl: string, path: string, body: unknown)
   }
 }
 
-export async function collectorGet<T>(rawUrl: string, path: string): Promise<T | null> {
+export async function collectorGet<T>(rawUrl: string, path: string, token = ""): Promise<T | null> {
   const url = normalizeCollectorUrl(rawUrl);
   if (!url) return null;
   try {
-    const res = await fetch(`${url}${path}`, { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(`${url}${path}`, { headers: managementHeaders(token), signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {

@@ -13,6 +13,7 @@
  * Wi-Fi — it finds this collector.
  */
 import dgram from "node:dgram";
+import { timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -46,6 +47,63 @@ const POLICY_FILE = path.join(DATA_DIR, "policy.json");
 const ALERT_FILE = path.join(DATA_DIR, "alerts.json");
 const SCAN_FILE = path.join(DATA_DIR, "scans.json");
 const INSIGHT_FILE = path.join(DATA_DIR, "insights.json");
+
+const LOOPBACK_BINDS = new Set(["127.0.0.1", "::1", "localhost"]);
+
+/**
+ * The collector controls household DNS policy and scans, so its management API
+ * is loopback-only by default. A LAN listener is an explicit operator choice
+ * and requires a bearer token. Nothing here edits an installed service or
+ * network setting; deployment configuration remains the operator's decision.
+ */
+function resolveManagementConfig(env = process.env) {
+  const requestedBind = String(env.LINEWATCH_MANAGEMENT_BIND || "127.0.0.1").trim();
+  const requestedToken = String(env.LINEWATCH_MANAGEMENT_TOKEN || "").trim();
+  const requestedOrigin = String(env.LINEWATCH_MANAGEMENT_ORIGIN || "").trim();
+  const bind = requestedBind || "127.0.0.1";
+  const isLoopback = LOOPBACK_BINDS.has(bind);
+  let allowedOrigin = null;
+  try {
+    const parsed = requestedOrigin ? new URL(requestedOrigin) : null;
+    allowedOrigin = parsed?.origin === requestedOrigin ? requestedOrigin : null;
+  } catch {
+    allowedOrigin = null;
+  }
+
+  if (!isLoopback && !requestedToken) {
+    return {
+      bind: "127.0.0.1",
+      token: "",
+      allowedOrigin: null,
+      forcedLoopback: true,
+    };
+  }
+  return { bind, token: requestedToken, allowedOrigin, forcedLoopback: false };
+}
+
+function constantTimeEqual(left, right) {
+  const a = Buffer.from(String(left));
+  const b = Buffer.from(String(right));
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function authorizedManagementRequest(req, config) {
+  if (!config.token) return true;
+  const header = String(req.headers?.authorization || "");
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return Boolean(match?.[1]) && constantTimeEqual(match[1], config.token);
+}
+
+function allowConfiguredCors(req, res, config) {
+  const origin = String(req.headers?.origin || "");
+  if (!origin) return true;
+  if (!config.allowedOrigin || origin !== config.allowedOrigin) return false;
+  res.setHeader("Access-Control-Allow-Origin", config.allowedOrigin);
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Vary", "Origin");
+  return true;
+}
 
 /** @typedef {{ ts: number, sourceIp: string, mac: string, host: string, category: string, action: string, reason: string, entropy: number, owner: string }} LogRow */
 
@@ -456,12 +514,6 @@ function listenDns(port) {
   });
 }
 
-function cors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-}
-
 function readBody(req) {
   return new Promise((resolve) => {
     const chunks = [];
@@ -581,6 +633,10 @@ async function main() {
   note(`Router guess: ${router.label}`);
 
   loadDisk();
+  const management = resolveManagementConfig();
+  if (management.forcedLoopback) {
+    note("Management API requested a non-loopback bind without LINEWATCH_MANAGEMENT_TOKEN; using loopback only.");
+  }
   const demoMigration = removeBundledDemoData(policy);
   policy = demoMigration.policy;
   if (demoMigration.removed) {
@@ -638,17 +694,22 @@ async function main() {
   });
 
   const server = http.createServer(async (req, res) => {
-    cors(res);
+    const json = (code, obj) => {
+      res.writeHead(code, { "content-type": "application/json" });
+      res.end(JSON.stringify(obj));
+    };
+    if (!allowConfiguredCors(req, res, management)) {
+      return json(403, { ok: false, error: "Origin is not allowed for collector management." });
+    }
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
       return;
     }
+    if (!authorizedManagementRequest(req, management)) {
+      return json(401, { ok: false, error: "Collector management authentication is required." });
+    }
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-    const json = (code, obj) => {
-      res.writeHead(code, { "content-type": "application/json" });
-      res.end(JSON.stringify(obj));
-    };
 
     if (url.pathname === "/status") return json(200, state());
     if (url.pathname === "/events") {
@@ -756,9 +817,9 @@ async function main() {
     res.end(htmlPage({ ...state(), router }));
   });
 
-  server.listen(HTTP_PORT, "0.0.0.0", () => {
-    note(`Parent desk http://${lanIp || "127.0.0.1"}:${HTTP_PORT}`);
-    note("Phone: open Linewatch on this Wi-Fi. It finds this computer.");
+  server.listen(HTTP_PORT, management.bind, () => {
+    note(`Management desk http://${management.bind}:${HTTP_PORT}`);
+    note(management.token ? "Management API uses bearer-token authentication." : "Management API is restricted to this computer.");
   });
 }
 
@@ -770,4 +831,4 @@ if (isMain) {
   });
 }
 
-export { applyDecision, loadDisk };
+export { allowConfiguredCors, applyDecision, authorizedManagementRequest, loadDisk, resolveManagementConfig };

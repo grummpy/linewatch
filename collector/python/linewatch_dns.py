@@ -256,16 +256,14 @@ class Api(BaseHTTPRequestHandler):
         raw = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
 
     def do_OPTIONS(self) -> None:  # noqa: N802
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # This read-only compatibility collector is intentionally local-only.
+        # Do not grant browser cross-origin access to household DNS telemetry.
+        self.send_response(405)
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
@@ -307,8 +305,8 @@ class Api(BaseHTTPRequestHandler):
 
 def serve_http(policy: dict) -> None:
     Api.policy = policy
-    httpd = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), Api)
-    print(f"Linewatch Python API on {HTTP_PORT}", flush=True)
+    httpd = ThreadingHTTPServer(("127.0.0.1", HTTP_PORT), Api)
+    print(f"Linewatch Python API on 127.0.0.1:{HTTP_PORT}", flush=True)
     httpd.serve_forever()
 
 

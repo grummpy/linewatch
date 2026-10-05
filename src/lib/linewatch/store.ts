@@ -62,6 +62,8 @@ type Persisted = {
   events: TrafficEvent[];
   alerts: Alert[];
   archives: Archive[];
+  /** Retained separately so changing to the demo never overwrites real DNS observations. */
+  observedEvents?: TrafficEvent[];
   houseSource?: HouseSource;
   collectorUrl?: string;
 };
@@ -72,6 +74,7 @@ type LinewatchState = {
   now: number;
   devices: Device[];
   events: TrafficEvent[];
+  observedEvents: TrafficEvent[];
   alerts: Alert[];
   archives: Archive[];
   rules: Rules;
@@ -82,6 +85,8 @@ type LinewatchState = {
   eventsPerMin: number;
   houseSource: HouseSource;
   collectorUrl: string;
+  /** Session-only bearer token; intentionally excluded from local persistence. */
+  collectorToken: string;
   collectorStatus: CollectorStatus | null;
   lanProbe: LanProbe | null;
   discovering: boolean;
@@ -110,6 +115,7 @@ type LinewatchState = {
   flushArchive: () => void;
   probeLan: () => Promise<LanProbe>;
   setCollectorUrl: (url: string) => void;
+  setCollectorToken: (token: string) => void;
   connectCollector: (url?: string) => Promise<CollectorStatus>;
   disconnectCollector: () => void;
   useDemoHouse: () => void;
@@ -134,7 +140,7 @@ const recentTimes: number[] = [];
 function persist(
   state: Pick<
     LinewatchState,
-    "devices" | "rules" | "events" | "alerts" | "archives" | "houseSource" | "collectorUrl"
+    "devices" | "rules" | "events" | "observedEvents" | "alerts" | "archives" | "houseSource" | "collectorUrl"
   >,
 ) {
   if (typeof localStorage === "undefined") return;
@@ -142,6 +148,7 @@ function persist(
     devices: state.devices,
     rules: state.rules,
     events: pruneWeek(state.events, Date.now()).slice(-500),
+    observedEvents: pruneWeek(state.observedEvents, Date.now()).slice(-MAX_EVENTS),
     alerts: pruneWeek(state.alerts, Date.now()).slice(0, 120),
     archives: pruneWeek(state.archives, Date.now()).slice(0, MAX_ARCHIVES),
     houseSource: state.houseSource,
@@ -162,6 +169,7 @@ function schedulePersist(get: () => LinewatchState) {
       devices: s.devices,
       rules: s.rules,
       events: s.events,
+      observedEvents: s.observedEvents,
       alerts: s.alerts,
       archives: s.archives,
       houseSource: s.houseSource,
@@ -178,7 +186,7 @@ function pushPolicy(get: () => LinewatchState) {
   const devices = prefix
     ? s.devices.filter((d) => d.ip.startsWith(`${prefix}.`) || Boolean(d.quarantined))
     : s.devices;
-  void collectorPost(s.collectorUrl, "/policy", rulesToCollectorPolicy(s.rules, devices));
+  void collectorPost(s.collectorUrl, "/policy", rulesToCollectorPolicy(s.rules, devices), s.collectorToken);
 }
 
 function maybeNotify(alert: Alert, deviceName: string, enabled: boolean) {
@@ -236,9 +244,14 @@ function normalizeEvent(e: TrafficEvent): TrafficEvent {
   return {
     ...e,
     owner: e.owner ?? "Unknown",
-    path: (e.path as PathKind | undefined) ?? "wan",
+    path: (e.path as PathKind | undefined) ?? "unknown",
     locationHint: e.locationHint ?? null,
     destRegion: e.destRegion ?? destRegionFor(e.destIp),
+    provenance: e.provenance ?? {
+      source: "legacy_unlabeled",
+      observedFields: [],
+      derivedFields: ["legacy_event_fields_not_verified"],
+    },
   };
 }
 
@@ -345,7 +358,11 @@ function ingestEvent(
     if (arc) archives = [arc, ...archives].slice(0, MAX_ARCHIVES);
     sinceArchive = 0;
   }
-  set(() => ({ devices, events, alerts, archives, now: Date.now() }));
+  const observedEvents =
+    event.provenance.source === "demo"
+      ? state.observedEvents
+      : [...state.observedEvents.filter((row) => row.id !== event.id), event].slice(-MAX_EVENTS);
+  set(() => ({ devices, events, observedEvents, alerts, archives, now: Date.now() }));
   const latest = get();
   const dev = latest.devices.find((d) => d.id === event.deviceId);
   if (dev && !dev.quarantined && autoQuarantineOn(latest.rules, dev.owner, dev.role)) {
@@ -393,6 +410,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   now: 0,
   devices: HOUSEHOLD,
   events: [],
+  observedEvents: [],
   alerts: [],
   archives: [],
   rules: DEFAULT_RULES,
@@ -403,6 +421,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   eventsPerMin: 0,
   houseSource: "demo",
   collectorUrl: "",
+  collectorToken: "",
   collectorStatus: null,
   lanProbe: null,
   discovering: false,
@@ -416,6 +435,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     let devices = HOUSEHOLD.map((d) => ({ ...d }));
     let rules = { ...DEFAULT_RULES, personBlocks: {} as Record<string, string[]> };
     let events: TrafficEvent[] = [];
+    let observedEvents: TrafficEvent[] = [];
     let alerts: Alert[] = [];
     let archives: Archive[] = [];
     let houseSource: HouseSource = "demo";
@@ -448,10 +468,24 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
             profileQuarantine: saved.rules.profileQuarantine ?? {},
           };
         }
-        if (Array.isArray(saved.events) && saved.events.length) {
-          if (saved.houseSource === "house" || saved.events.length > 40) {
-            events = saved.events.map(normalizeEvent);
-          }
+        const savedEvents = Array.isArray(saved.events) ? saved.events.map(normalizeEvent) : [];
+        const savedObserved = Array.isArray(saved.observedEvents) ? saved.observedEvents.map(normalizeEvent) : [];
+        // Older stored live sessions did not identify individual fields. Keep
+        // them apart as legacy data instead of relabeling them as verified.
+        observedEvents = savedObserved.length
+          ? savedObserved.filter((event) => event.provenance.source !== "demo")
+          : saved.houseSource === "house"
+            ? savedEvents.map((event) => ({
+                ...event,
+                provenance: event.provenance.source === "demo"
+                  ? { source: "legacy_unlabeled" as const, observedFields: [], derivedFields: ["legacy_demo_or_live_source_unknown"] }
+                  : event.provenance,
+              }))
+            : [];
+        if (saved.houseSource === "house") {
+          events = observedEvents;
+        } else if (savedEvents.length) {
+          events = savedEvents.filter((event) => event.provenance.source === "demo");
         }
         if (Array.isArray(saved.alerts)) alerts = saved.alerts;
         if (Array.isArray(saved.archives)) archives = saved.archives;
@@ -482,6 +516,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       devices,
       rules,
       events,
+      observedEvents,
       alerts,
       archives,
       houseSource,
@@ -727,10 +762,12 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     schedulePersist(get);
   },
 
+  setCollectorToken: (collectorToken) => set({ collectorToken }),
+
   connectCollector: async (url) => {
     const target = normalizeCollectorUrlExport(url ?? get().collectorUrl);
     set({ collectorUrl: target });
-    const status = await fetchCollectorStatus(target);
+    const status = await fetchCollectorStatus(target, 4000, get().collectorToken);
     const lan = get().lanProbe;
     const gateway = status.gateway || lan?.likelyGateway || "";
     const prefix = gateway ? gateway.split(".").slice(0, 3).join(".") : "";
@@ -746,13 +783,13 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     }
     // Chris Decker: drop the demo family so Live is this week's real house traffic.
     if (get().houseSource !== "house") {
-      set({ devices: [], events: [], alerts: [], archives: [], houseSource: "house" });
+      set({ devices: [], events: get().observedEvents, alerts: [], archives: [], houseSource: "house" });
     }
     collectorSince = Date.now() - WEEK_MS;
     if (collectorTick) clearInterval(collectorTick);
     const pull = async () => {
       try {
-        const rows = await pullCollectorEvents(target, collectorSince);
+        const rows = await pullCollectorEvents(target, collectorSince, get().collectorToken);
         if (rows.length) {
           for (const row of rows) {
             if (row.ts > collectorSince) collectorSince = row.ts;
@@ -797,7 +834,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
           while (recentTimes[0] && recentTimes[0] < t - 60_000) recentTimes.shift();
           set({ eventsPerMin: recentTimes.length, now: t });
         }
-        const next = await fetchCollectorStatus(target);
+        const next = await fetchCollectorStatus(target, 4000, get().collectorToken);
         const insights =
           next.insights && typeof next.insights === "object" ? (next.insights as LinewatchState["insights"]) : get().insights;
         set({ collectorStatus: next, houseSource: "house", insights });
@@ -831,20 +868,18 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     collectorTick = null;
     const s = get();
     const now = Date.now();
-    if (s.events.length < 40) {
-      const seeded = seedDemo(s.devices, s.rules, now);
-      set({
-        houseSource: "demo",
-        collectorStatus: null,
-        events: seeded.events,
-        alerts: seeded.alerts,
-        archives: seeded.archives,
-        devices: seeded.devices,
-        now,
-      });
-    } else {
-      set({ houseSource: "demo", collectorStatus: null });
-    }
+    // Never leave generated rows beside a prior collector session. Observed
+    // rows remain in `observedEvents` and are restored on the next connection.
+    const seeded = seedDemo(HOUSEHOLD.map((device) => ({ ...device })), s.rules, now);
+    set({
+      houseSource: "demo",
+      collectorStatus: null,
+      events: seeded.events,
+      alerts: seeded.alerts,
+      archives: seeded.archives,
+      devices: seeded.devices,
+      now,
+    });
     schedulePersist(get);
   },
 
@@ -861,7 +896,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
         suggestedUrls: suggestions.slice(0, 20),
         collectorUrl: filled,
       });
-      const found = await discoverCollector(lan, saved);
+      const found = await discoverCollector(lan, saved, get().collectorToken);
       if (found) {
         set({
           suggestedUrls: [found.url, ...suggestions.filter((u) => u !== found.url)].slice(0, 20),
@@ -890,7 +925,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     pushPolicy(get);
     const s = get();
     const d = s.devices.find((x) => x.id === id);
-    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: true, reason });
+    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: true, reason }, s.collectorToken);
   },
 
   releaseQuarantine: (id) => {
@@ -903,7 +938,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     pushPolicy(get);
     const s = get();
     const d = s.devices.find((x) => x.id === id);
-    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: false });
+    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: false }, s.collectorToken);
     toast.success("Released from quarantine");
   },
 
@@ -917,10 +952,10 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     set({ scan: { at: Date.now(), targets: 0, findings: [], running: true } });
     const s = get();
     if (s.houseSource === "house" && s.collectorUrl) {
-      await collectorPost(s.collectorUrl, "/scan", {});
+      await collectorPost(s.collectorUrl, "/scan", {}, s.collectorToken);
       for (let i = 0; i < 20; i++) {
         await new Promise((r) => setTimeout(r, 500));
-        const data = await collectorGet<{ running?: boolean; scan?: ScanReport }>(s.collectorUrl, "/scan");
+        const data = await collectorGet<{ running?: boolean; scan?: ScanReport }>(s.collectorUrl, "/scan", s.collectorToken);
         if (data?.scan && !data.running) {
           set({ scan: { ...data.scan, running: false } });
           return;

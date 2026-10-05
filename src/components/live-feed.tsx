@@ -109,6 +109,8 @@ export function LiveFeed() {
                         {e.blocked ? <span className="ml-2 text-xs text-warn">blocked</span> : null}
                         {e.action === "rewritten" ? <span className="ml-2 text-xs text-accent">safe search</span> : null}
                         {e.locationHint ? <span className="ml-2 text-xs text-accent">loc</span> : null}
+                        {e.provenance.source === "demo" ? <span className="ml-2 text-xs text-muted">demo</span> : null}
+                        {e.provenance.source === "collector_dns" ? <span className="ml-2 text-xs text-accent">DNS observed</span> : null}
                       </span>
                       <span className="block truncate font-mono text-[11px] text-muted">
                         {e.sourceIp} → {e.destHost}
@@ -126,7 +128,9 @@ export function LiveFeed() {
                         <Badge tone={pathTone(e.path)}>{PATH_LABEL[e.path]}</Badge>
                         <CategoryBadge category={e.category} risk={e.risk} />
                       </span>
-                      <span className="font-mono text-[11px] text-muted tabular">{formatBytes(e.bytes)}</span>
+                      <span className="font-mono text-[11px] text-muted tabular">
+                        {e.provenance.source === "demo" ? formatBytes(e.bytes) : "—"}
+                      </span>
                     </span>
                   </button>
                 </li>
