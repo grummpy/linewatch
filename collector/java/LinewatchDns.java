@@ -158,7 +158,9 @@ public class LinewatchDns {
   }
 
   static void startHttp() throws IOException {
-    HttpServer http = HttpServer.create(new InetSocketAddress("0.0.0.0", httpPort), 0);
+    // The Java compatibility collector has no authenticated LAN management
+    // protocol, so its telemetry API is deliberately available only here.
+    HttpServer http = HttpServer.create(new InetSocketAddress("127.0.0.1", httpPort), 0);
     http.createContext("/status", (HttpExchange ex) -> {
       int n = 0;
       try {
@@ -199,12 +201,11 @@ public class LinewatchDns {
     });
     http.setExecutor(Executors.newCachedThreadPool());
     http.start();
-    System.out.println("Linewatch Java API on " + httpPort);
+    System.out.println("Linewatch Java API on 127.0.0.1:" + httpPort);
   }
 
   static void sendJson(HttpExchange ex, String json) throws IOException {
     byte[] body = json.getBytes(StandardCharsets.UTF_8);
-    ex.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
     ex.getResponseHeaders().add("Content-Type", "application/json");
     ex.sendResponseHeaders(200, body.length);
     ex.getResponseBody().write(body);

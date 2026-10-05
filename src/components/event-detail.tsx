@@ -75,7 +75,19 @@ export function EventDetail() {
             <Row k="Path" v={PATH_LABEL[event.path]} />
             <Row k="Genre" v={CATEGORY_LABEL[event.category]} />
             <Row k="Protocol" v={`${event.protocol.toUpperCase()} :${event.destPort}`} />
-            <Row k="Bytes" v={formatBytes(event.bytes)} />
+            <Row k="Bytes" v={event.provenance.source === "demo" ? formatBytes(event.bytes) : "not observed"} />
+            <Row
+              k="Evidence"
+              v={
+                event.provenance.source === "demo"
+                  ? "Generated demo event"
+                  : event.provenance.source === "collector_dns"
+                    ? "Observed DNS query; UI classification is derived"
+                    : event.provenance.source === "imported_dns_log"
+                      ? "Imported DNS-log query; UI classification is derived"
+                      : "Legacy event; field provenance was not recorded"
+              }
+            />
             {event.reason ? <Row k="Why" v={event.reason} /> : null}
             {event.entropy ? <Row k="Name entropy" v={String(event.entropy)} /> : null}
             <Row
@@ -88,8 +100,9 @@ export function EventDetail() {
             />
           </div>
           <p className="mt-3 text-xs leading-relaxed text-muted">
-            Server region is where the site answered from, not where {event.owner} is. Sidewalk is
-            tagged from Amazon / Ring / Tile endpoints — not the 900 MHz radio itself.
+            {event.provenance.source === "demo"
+              ? "Demo-only fields are generated to explain the desk; they are not a household observation."
+              : "A DNS query does not reveal destination IP, traffic bytes, server region, or Sidewalk/Amazon routing; those fields are intentionally not shown as observed."}
           </p>
 
           <div className="mt-6 flex flex-col gap-2">

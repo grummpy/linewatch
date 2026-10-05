@@ -4,7 +4,6 @@
  */
 import { DESTINATIONS, HOUSEHOLD } from "./catalog";
 import {
-  classifyHost,
   destRegionFor,
   ipForHost,
   pathFor,
@@ -172,6 +171,100 @@ export function makeEvent(opts: {
     reason: decision.reason,
     entropy: decision.entropy,
     mac: opts.device.mac,
+    provenance: {
+      source: "demo",
+      observedFields: [],
+      derivedFields: [
+        "device",
+        "destination",
+        "destination_ip",
+        "destination_region",
+        "protocol",
+        "port",
+        "bytes",
+        "classification",
+        "policy_decision",
+      ],
+    },
+  };
+}
+
+function observedDnsEvent(opts: {
+  source: "collector_dns" | "imported_dns_log";
+  host: string;
+  sourceIp: string;
+  ts: number;
+  mac?: string;
+  category?: Category;
+  action?: "allowed" | "blocked" | "rewritten";
+  reason?: string;
+  entropy?: number;
+  owner?: string;
+  devices: Device[];
+  rules: Rules;
+}): TrafficEvent {
+  const mac = (opts.mac || "").toLowerCase();
+  const device =
+    opts.devices.find((d) => (mac && d.mac.toLowerCase() === mac) || d.ip === opts.sourceIp) ??
+    ({
+      id: `dev-unknown-${opts.sourceIp.replace(/\./g, "-")}`,
+      name: `Unknown · ${opts.sourceIp}`,
+      owner: opts.owner || "Unknown",
+      role: "shared" as const,
+      ip: opts.sourceIp,
+      mac: opts.mac || "—",
+      kind: "iot" as const,
+      blocked: false,
+      lastSeen: opts.ts,
+    } satisfies Device);
+  const category = opts.category ?? "unknown";
+  const action = opts.action ?? "allowed";
+  const reason = opts.reason ?? "collector_dns_query";
+  const observedFields = ["timestamp", "source_ip", "queried_host"];
+  if (opts.mac) observedFields.push("mac");
+  if (opts.owner) observedFields.push("owner");
+  if (opts.category) observedFields.push("category");
+  if (opts.action) observedFields.push("policy_action");
+  if (opts.reason) observedFields.push("policy_reason");
+  if (opts.entropy !== undefined) observedFields.push("entropy");
+
+  // A DNS query does not reveal destination IP, transport, bytes, destination
+  // region, or Sidewalk/Amazon routing. Keep these explicitly unavailable
+  // instead of borrowing generated demo values.
+  return {
+    id: newId("ev"),
+    ts: opts.ts,
+    deviceId: device.id,
+    owner: opts.owner || device.owner,
+    sourceIp: opts.sourceIp,
+    destIp: "not observed",
+    destHost: opts.host,
+    destLabel: opts.host,
+    destPort: 53,
+    destRegion: "not observed",
+    protocol: "dns",
+    category,
+    path: "unknown",
+    locationHint: null,
+    bytes: 0,
+    risk: riskFor({
+      category,
+      role: device.role,
+      ts: opts.ts,
+      rules: opts.rules,
+      reason,
+      blocked: action === "blocked",
+    }),
+    blocked: action === "blocked",
+    action,
+    reason,
+    entropy: opts.entropy,
+    mac: opts.mac || device.mac,
+    provenance: {
+      source: opts.source,
+      observedFields,
+      derivedFields: ["device_match", "risk"],
+    },
   };
 }
 
@@ -273,21 +366,7 @@ export function eventFromLog(opts: {
   devices: Device[];
   rules: Rules;
 }): TrafficEvent {
-  const dest = classifyHost(opts.host);
-  const device =
-    opts.devices.find((d) => d.ip === opts.sourceIp) ??
-    ({
-      id: `dev-unknown-${opts.sourceIp}`,
-      name: `Unknown · ${opts.sourceIp}`,
-      owner: "Unknown",
-      role: "shared" as const,
-      ip: opts.sourceIp,
-      mac: "—",
-      kind: "iot" as const,
-      blocked: false,
-      lastSeen: opts.ts,
-    } satisfies Device);
-  return makeEvent({ device, dest, ts: opts.ts, rules: opts.rules });
+  return observedDnsEvent({ ...opts, source: "imported_dns_log" });
 }
 
 /** Honor the house DNS decision instead of re-deciding in the phone. */
@@ -304,55 +383,7 @@ export function eventFromCollector(opts: {
   devices: Device[];
   rules: Rules;
 }): TrafficEvent {
-  const dest = classifyHost(opts.host);
-  const mac = (opts.mac || "").toLowerCase();
-  const device =
-    opts.devices.find((d) => (mac && d.mac.toLowerCase() === mac) || d.ip === opts.sourceIp) ??
-    ({
-      id: `dev-unknown-${opts.sourceIp.replace(/\./g, "-")}`,
-      name: `Unknown · ${opts.sourceIp}`,
-      owner: opts.owner || "Unknown",
-      role: "shared" as const,
-      ip: opts.sourceIp,
-      mac: opts.mac || "—",
-      kind: "iot" as const,
-      blocked: false,
-      lastSeen: opts.ts,
-    } satisfies Device);
-  const base = makeEvent({ device, dest, ts: opts.ts, rules: opts.rules });
-  const action = opts.action ?? base.action ?? "allowed";
-  const reason = opts.reason ?? base.reason;
-  const category = opts.category ?? base.category;
-  const blocked = action === "blocked";
-  const destIp = blocked ? "0.0.0.0" : action === "rewritten" && reason === "safe-search" ? destIpForSafeSearch(opts.host) : base.destIp;
-  return {
-    ...base,
-    owner: opts.owner || device.owner,
-    mac: opts.mac || device.mac,
-    category,
-    action,
-    reason,
-    blocked,
-    destIp,
-    entropy: opts.entropy ?? base.entropy,
-    risk: riskFor({
-      category,
-      role: device.role,
-      ts: opts.ts,
-      rules: opts.rules,
-      reason,
-      blocked,
-    }),
-  };
-}
-
-function destIpForSafeSearch(host: string): string {
-  const h = host.replace(/^www\./, "").toLowerCase();
-  if (h === "google.com" || h.endsWith(".google.com")) return "216.239.38.120";
-  if (h === "youtube.com" || h.endsWith(".youtube.com")) return "216.239.38.119";
-  if (h === "bing.com" || h.endsWith(".bing.com")) return "204.79.197.200";
-  if (h === "duckduckgo.com") return "52.250.42.157";
-  return "0.0.0.0";
+  return observedDnsEvent({ ...opts, source: "collector_dns" });
 }
 
 export { HOUSEHOLD };

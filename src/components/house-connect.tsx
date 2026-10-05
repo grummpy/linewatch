@@ -14,12 +14,14 @@ const COLLECTOR_CMD = "npm run collector";
 export function HouseConnect() {
   const houseSource = useLinewatch((s) => s.houseSource);
   const collectorUrl = useLinewatch((s) => s.collectorUrl);
+  const collectorToken = useLinewatch((s) => s.collectorToken);
   const collectorStatus = useLinewatch((s) => s.collectorStatus);
   const lanProbe = useLinewatch((s) => s.lanProbe);
   const discovering = useLinewatch((s) => s.discovering);
   const suggestedUrls = useLinewatch((s) => s.suggestedUrls);
   const autoJoinHouse = useLinewatch((s) => s.autoJoinHouse);
   const setCollectorUrl = useLinewatch((s) => s.setCollectorUrl);
+  const setCollectorToken = useLinewatch((s) => s.setCollectorToken);
   const connectCollector = useLinewatch((s) => s.connectCollector);
   const useDemoHouse = useLinewatch((s) => s.useDemoHouse);
   const [busy, setBusy] = useState(false);
@@ -100,6 +102,14 @@ export function HouseConnect() {
           void connectCollector(url).finally(() => setBusy(false));
         }}
       >
+        <input
+          type="password"
+          value={collectorToken}
+          onChange={(e) => setCollectorToken(e.target.value)}
+          placeholder="Management token (only for a LAN-enabled collector)"
+          autoComplete="off"
+          className="h-11 min-w-0 flex-1 rounded-sm bg-elevated px-3 font-mono text-sm shadow-[var(--shadow-border)]"
+        />
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}

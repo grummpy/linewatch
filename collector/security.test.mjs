@@ -1,0 +1,38 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  allowConfiguredCors,
+  authorizedManagementRequest,
+  resolveManagementConfig,
+} from "./linewatch-collector.mjs";
+
+test("collector management defaults to loopback without CORS", () => {
+  const config = resolveManagementConfig({});
+  assert.equal(config.bind, "127.0.0.1");
+  assert.equal(config.token, "");
+  assert.equal(config.allowedOrigin, null);
+  assert.equal(config.forcedLoopback, false);
+});
+
+test("a LAN management bind without a token is forced back to loopback", () => {
+  const config = resolveManagementConfig({ LINEWATCH_MANAGEMENT_BIND: "0.0.0.0" });
+  assert.equal(config.bind, "127.0.0.1");
+  assert.equal(config.forcedLoopback, true);
+});
+
+test("LAN management requires an exact bearer token and configured origin", () => {
+  const config = resolveManagementConfig({
+    LINEWATCH_MANAGEMENT_BIND: "0.0.0.0",
+    LINEWATCH_MANAGEMENT_TOKEN: "test-token",
+    LINEWATCH_MANAGEMENT_ORIGIN: "https://desk.example.test",
+  });
+  assert.equal(authorizedManagementRequest({ headers: { authorization: "Bearer test-token" } }, config), true);
+  assert.equal(authorizedManagementRequest({ headers: { authorization: "Bearer wrong" } }, config), false);
+
+  const headers = new Map();
+  const response = { setHeader: (name, value) => headers.set(name, value) };
+  assert.equal(allowConfiguredCors({ headers: { origin: "https://desk.example.test" } }, response, config), true);
+  assert.equal(headers.get("Access-Control-Allow-Origin"), "https://desk.example.test");
+  assert.equal(allowConfiguredCors({ headers: { origin: "https://other.example.test" } }, response, config), false);
+});

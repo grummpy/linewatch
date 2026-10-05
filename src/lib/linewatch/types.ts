@@ -22,10 +22,19 @@ export type DeviceKind = "phone" | "tablet" | "laptop" | "console" | "tv" | "iot
 export type DeviceRole = "parent" | "child" | "shared" | "iot";
 export type Protocol = "https" | "http" | "quic" | "dns";
 export type Risk = "ok" | "watch" | "alert";
-export type PathKind = "wan" | "sidewalk" | "amazon";
+export type PathKind = "wan" | "sidewalk" | "amazon" | "unknown";
 export type FirewallMode = "monitor" | "blacklist" | "whitelist";
 export type FeedFilter = "all" | "adult" | "kids" | "blocked" | "sidewalk" | "wan" | "location" | "vpn";
 export type DnsAction = "allowed" | "blocked" | "rewritten";
+export type EventSource = "demo" | "collector_dns" | "imported_dns_log" | "legacy_unlabeled";
+export type EventProvenance = {
+  /** The evidence channel, never an assertion that unobserved network fields are real. */
+  source: EventSource;
+  /** Fields received from the collector or imported log. */
+  observedFields: string[];
+  /** UI / policy enrichments kept separate from what the collector saw. */
+  derivedFields: string[];
+};
 
 export type Destination = {
   host: string;
@@ -71,6 +80,7 @@ export type TrafficEvent = {
   reason?: string;
   entropy?: number;
   mac?: string;
+  provenance: EventProvenance;
 };
 
 export type AlertKind =
@@ -198,6 +208,7 @@ export const PATH_LABEL: Record<PathKind, string> = {
   wan: "WAN data",
   sidewalk: "Sidewalk",
   amazon: "Amazon net",
+  unknown: "Not observed",
 };
 
 export const SYSTEM_HOSTS = [
