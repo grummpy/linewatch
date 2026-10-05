@@ -234,13 +234,15 @@ function observedDnsEvent(opts: {
   // Collector responses are replayed after reconnect.  Use only fields that
   // identify the received DNS row so the same observation has the same ID
   // instead of accumulating a new random UI event on every pull.
-  const stableIdentity = [opts.source, opts.ts, opts.sourceIp, opts.mac || "", opts.host].join("\u001f");
-  let stableHash = 2166136261;
-  for (let i = 0; i < stableIdentity.length; i += 1) {
-    stableHash = Math.imul(stableHash ^ stableIdentity.charCodeAt(i), 16777619);
-  }
+  const stableId = observedEventId({
+    source: opts.source,
+    ts: opts.ts,
+    sourceIp: opts.sourceIp,
+    mac: opts.mac || "",
+    host: opts.host,
+  });
   return {
-    id: `observed-${(stableHash >>> 0).toString(36)}`,
+    id: stableId,
     ts: opts.ts,
     deviceId: device.id,
     owner: opts.owner || device.owner,
@@ -274,6 +276,21 @@ function observedDnsEvent(opts: {
       derivedFields: ["device_match", "risk"],
     },
   };
+}
+
+export function observedEventId(opts: {
+  source: "collector_dns" | "imported_dns_log";
+  ts: number;
+  sourceIp: string;
+  mac?: string;
+  host: string;
+}): string {
+  const stableIdentity = [opts.source, opts.ts, opts.sourceIp, opts.mac || "", opts.host].join("\u001f");
+  let stableHash = 2166136261;
+  for (let i = 0; i < stableIdentity.length; i += 1) {
+    stableHash = Math.imul(stableHash ^ stableIdentity.charCodeAt(i), 16777619);
+  }
+  return `observed-${(stableHash >>> 0).toString(36)}`;
 }
 
 export function randomEvent(devices: Device[], rules: Rules, ts: number, rng = Math.random): TrafficEvent {

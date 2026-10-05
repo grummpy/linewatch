@@ -22,7 +22,7 @@ import {
 } from "./lan";
 import { autoQuarantineOn, rulesToCollectorPolicy, sentenceForEvent } from "./policy";
 import { eventsToArchiveRows } from "./selectors";
-import { adultSample, eventFromCollector, eventFromLog, generateHistory, randomEvent } from "./simulate";
+import { adultSample, eventFromCollector, eventFromLog, generateHistory, observedEventId, randomEvent } from "./simulate";
 import {
   DEFAULT_RULES,
   type Alert,
@@ -134,6 +134,7 @@ let archiveTick: ReturnType<typeof setInterval> | null = null;
 let firstAlertTimer: ReturnType<typeof setTimeout> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let collectorTick: ReturnType<typeof setInterval> | null = null;
+let collectorSession = 0;
 let sessionAlerted = false;
 let sinceArchive = 0;
 let collectorSince = 0;
@@ -257,6 +258,31 @@ function normalizeEvent(e: TrafficEvent): TrafficEvent {
   };
 }
 
+function collectorObservationIdentity(event: TrafficEvent): string | null {
+  if (event.provenance?.source !== "collector_dns") return null;
+  const observedMac = event.provenance.observedFields.includes("mac") ? event.mac || "" : "";
+  return observedEventId({
+    source: "collector_dns",
+    ts: event.ts,
+    sourceIp: event.sourceIp,
+    mac: observedMac,
+    host: event.destHost,
+  });
+}
+
+function sameCollectorObservation(left: TrafficEvent, right: TrafficEvent): boolean {
+  const leftIdentity = collectorObservationIdentity(left);
+  return leftIdentity !== null && leftIdentity === collectorObservationIdentity(right);
+}
+
+function replaceOneReplay(events: TrafficEvent[], event: TrafficEvent): { rows: TrafficEvent[]; replay: boolean } {
+  const index = events.findIndex((row) => row.id === event.id || sameCollectorObservation(row, event));
+  if (index < 0) return { rows: [...events, event].slice(-MAX_EVENTS), replay: false };
+  // Replace exactly one matching row.  A source may legitimately emit two
+  // indistinguishable timestamps, so do not collapse every similar legacy row.
+  return { rows: events.map((row, rowIndex) => (rowIndex === index ? event : row)), replay: true };
+}
+
 function buildArchive(events: TrafficEvent[], devices: Device[], now: number): Archive | null {
   if (!events.length) return null;
   const slice = events.slice(-ARCHIVE_EVERY);
@@ -326,8 +352,12 @@ function ingestEvent(
   const devices = state.devices.some((d) => d.id === event.deviceId)
     ? state.devices.map((d) => (d.id === event.deviceId ? { ...d, lastSeen: Math.max(d.lastSeen, event.ts) } : d))
     : state.devices;
-  const alreadyPresent = state.events.some((row) => row.id === event.id);
-  const events = [...state.events.filter((row) => row.id !== event.id), event].slice(-MAX_EVENTS);
+  const eventMerge = replaceOneReplay(state.events, event);
+  const observedMerge = event.provenance.source === "demo"
+    ? { rows: state.observedEvents, replay: false }
+    : replaceOneReplay(state.observedEvents, event);
+  const alreadyPresent = eventMerge.replay || observedMerge.replay;
+  const events = eventMerge.rows;
   let alerts = state.alerts;
   const repeats = state.events.filter(
     (e) => e.deviceId === event.deviceId && e.destHost === event.destHost && e.blocked && e.ts >= event.ts - 10 * 60_000,
@@ -340,7 +370,7 @@ function ingestEvent(
         event.reason === "dga-entropy" ||
         event.reason === "quarantine" ||
         repeats >= 3));
-  if (shouldAlert) {
+  if (!alreadyPresent && shouldAlert) {
     const alert = alertFromEvent(event, { count: repeats, deviceName: device?.name });
     if (repeats >= 3) alert.kind = "repeat";
     alerts = [alert, ...state.alerts.filter((existing) => existing.eventId !== event.id)].slice(0, MAX_ALERTS);
@@ -365,14 +395,11 @@ function ingestEvent(
     if (arc) archives = [arc, ...archives].slice(0, MAX_ARCHIVES);
     sinceArchive = 0;
   }
-  const observedEvents =
-    event.provenance.source === "demo"
-      ? state.observedEvents
-      : [...state.observedEvents.filter((row) => row.id !== event.id), event].slice(-MAX_EVENTS);
+  const observedEvents = observedMerge.rows;
   set(() => ({ devices, events, observedEvents, alerts, archives, now: Date.now() }));
   const latest = get();
   const dev = latest.devices.find((d) => d.id === event.deviceId);
-  if (opts?.applyPolicy !== false && dev && !dev.quarantined && autoQuarantineOn(latest.rules, dev.owner, dev.role)) {
+  if (!alreadyPresent && opts?.applyPolicy !== false && dev && !dev.quarantined && autoQuarantineOn(latest.rules, dev.owner, dev.role)) {
     const cut = event.ts - 15 * 60_000;
     const high = latest.events.filter(
       (e) =>
@@ -781,10 +808,13 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   setCollectorToken: (collectorToken) => set({ collectorToken }),
 
   connectCollector: async (url, useConfiguredToken = true) => {
+    const session = ++collectorSession;
+    const isCurrentSession = () => session === collectorSession && get().houseSource === "house";
     const target = normalizeCollectorUrlExport(url ?? get().collectorUrl);
     const activeToken = useConfiguredToken ? get().collectorToken : "";
     set({ collectorUrl: target, collectorUseToken: useConfiguredToken });
     const status = await fetchCollectorStatus(target, 4000, activeToken);
+    if (session !== collectorSession) return status;
     const lan = get().lanProbe;
     const gateway = status.gateway || lan?.likelyGateway || "";
     const prefix = gateway ? gateway.split(".").slice(0, 3).join(".") : "";
@@ -802,13 +832,16 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     if (get().houseSource !== "house") {
       set({ devices: [], events: get().observedEvents, alerts: [], archives: [], houseSource: "house" });
     }
+    if (!isCurrentSession()) return status;
     collectorSince = Date.now() - WEEK_MS;
     if (collectorTick) clearInterval(collectorTick);
     const pull = async () => {
       try {
         const rows = await pullCollectorEvents(target, collectorSince, activeToken);
+        if (!isCurrentSession()) return;
         if (rows.length) {
           for (const row of rows) {
+            if (!isCurrentSession()) return;
             if (row.ts > collectorSince) collectorSince = row.ts;
             let devices = get().devices;
             const mac = (row.mac || "").toLowerCase();
@@ -852,10 +885,12 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
           set({ eventsPerMin: recentTimes.length, now: t });
         }
         const next = await fetchCollectorStatus(target, 4000, activeToken);
+        if (!isCurrentSession()) return;
         const insights =
           next.insights && typeof next.insights === "object" ? (next.insights as LinewatchState["insights"]) : get().insights;
         set({ collectorStatus: next, houseSource: "house", insights });
       } catch (err) {
+        if (!isCurrentSession()) return;
         set({
           collectorStatus: {
             ok: false,
@@ -865,6 +900,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       }
     };
     await pull();
+    if (!isCurrentSession()) return status;
     collectorTick = setInterval(() => void pull(), 2500);
     set({ houseSource: "house", ingestNote: `Connected to collector ${target}` });
     toast.success("House collector connected", { description: status.router?.label ?? status.gateway ?? target });
@@ -874,6 +910,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   },
 
   disconnectCollector: () => {
+    collectorSession += 1;
     if (collectorTick) clearInterval(collectorTick);
     collectorTick = null;
     set({ collectorStatus: null, collectorUseToken: false });
@@ -881,6 +918,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   },
 
   useDemoHouse: () => {
+    collectorSession += 1;
     if (collectorTick) clearInterval(collectorTick);
     collectorTick = null;
     const s = get();
@@ -902,9 +940,11 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
 
   autoJoinHouse: async () => {
     if (get().discovering) return;
+    const session = collectorSession;
     set({ discovering: true });
     try {
       const lan = await probeLanNet();
+      if (session !== collectorSession) return;
       const saved = get().collectorUrl;
       const suggestions = collectorUrlSuggestions(lan, saved);
       const filled = saved || suggestions[0] || "";
@@ -914,6 +954,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
         collectorUrl: filled,
       });
       const found = await discoverCollector(lan, saved);
+      if (session !== collectorSession) return;
       if (found) {
         set({
           suggestedUrls: [found.url, ...suggestions.filter((u) => u !== found.url)].slice(0, 20),
