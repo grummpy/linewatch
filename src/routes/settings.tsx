@@ -17,6 +17,7 @@ function SettingsPage() {
   const rules = useLinewatch((s) => s.rules);
   const setRules = useLinewatch((s) => s.setRules);
   const running = useLinewatch((s) => s.running);
+  const houseSource = useLinewatch((s) => s.houseSource);
   const start = useLinewatch((s) => s.start);
   const stop = useLinewatch((s) => s.stop);
   const fireDemoAlert = useLinewatch((s) => s.fireDemoAlert);
@@ -253,8 +254,8 @@ function SettingsPage() {
             <Button variant="outline" onClick={() => (running ? stop() : start())}>
               {running ? "Pause demo feed" : "Resume demo feed"}
             </Button>
-            <Button variant="danger" onClick={fireDemoAlert}>
-              Fire adult sample
+            <Button variant="danger" onClick={fireDemoAlert} disabled={houseSource === "house"}>
+              {houseSource === "house" ? "Demo disabled while watching house" : "Fire adult sample"}
             </Button>
           </div>
         </section>

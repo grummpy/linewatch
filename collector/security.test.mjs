@@ -13,6 +13,18 @@ test("collector management defaults to loopback without CORS", () => {
   assert.equal(config.token, "");
   assert.equal(config.allowedOrigin, null);
   assert.equal(config.forcedLoopback, false);
+
+  const headers = new Map();
+  const response = { setHeader: (name, value) => headers.set(name, value) };
+  assert.equal(
+    allowConfiguredCors({ headers: { host: "127.0.0.1:8787", origin: "http://127.0.0.1:8787" } }, response, config),
+    true,
+  );
+  assert.equal(headers.get("Access-Control-Allow-Origin"), "http://127.0.0.1:8787");
+  assert.equal(
+    allowConfiguredCors({ headers: { host: "127.0.0.1:8787", origin: "http://rogue.example.test" } }, response, config),
+    false,
+  );
 });
 
 test("a LAN management bind without a token is forced back to loopback", () => {

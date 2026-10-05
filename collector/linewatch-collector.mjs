@@ -97,8 +97,19 @@ function authorizedManagementRequest(req, config) {
 function allowConfiguredCors(req, res, config) {
   const origin = String(req.headers?.origin || "");
   if (!origin) return true;
-  if (!config.allowedOrigin || origin !== config.allowedOrigin) return false;
-  res.setHeader("Access-Control-Allow-Origin", config.allowedOrigin);
+  let sameOrigin = false;
+  try {
+    const requested = new URL(origin);
+    const requestHost = String(req.headers?.host || "").toLowerCase();
+    // This server is HTTP.  Requiring its exact Host preserves the browser's
+    // same-origin desk without reviving wildcard CORS for LAN callers.
+    sameOrigin = requested.protocol === "http:" && requested.host.toLowerCase() === requestHost;
+  } catch {
+    sameOrigin = false;
+  }
+  const allowedOrigin = config.allowedOrigin || (sameOrigin ? origin : null);
+  if (!allowedOrigin || (config.allowedOrigin && origin !== config.allowedOrigin)) return false;
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Vary", "Origin");

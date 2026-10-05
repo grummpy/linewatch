@@ -22,7 +22,7 @@ import {
 } from "./lan";
 import { autoQuarantineOn, rulesToCollectorPolicy, sentenceForEvent } from "./policy";
 import { eventsToArchiveRows } from "./selectors";
-import { adultSample, eventFromCollector, eventFromLog, generateHistory, randomEvent } from "./simulate";
+import { adultSample, eventFromCollector, eventFromLog, generateHistory, observedEventId, randomEvent } from "./simulate";
 import {
   DEFAULT_RULES,
   type Alert,
@@ -87,6 +87,8 @@ type LinewatchState = {
   collectorUrl: string;
   /** Session-only bearer token; intentionally excluded from local persistence. */
   collectorToken: string;
+  /** A token is only used after the person explicitly chooses the collector URL. */
+  collectorUseToken: boolean;
   collectorStatus: CollectorStatus | null;
   lanProbe: LanProbe | null;
   discovering: boolean;
@@ -116,7 +118,7 @@ type LinewatchState = {
   probeLan: () => Promise<LanProbe>;
   setCollectorUrl: (url: string) => void;
   setCollectorToken: (token: string) => void;
-  connectCollector: (url?: string) => Promise<CollectorStatus>;
+  connectCollector: (url?: string, useConfiguredToken?: boolean) => Promise<CollectorStatus>;
   disconnectCollector: () => void;
   useDemoHouse: () => void;
   autoJoinHouse: () => Promise<void>;
@@ -132,6 +134,7 @@ let archiveTick: ReturnType<typeof setInterval> | null = null;
 let firstAlertTimer: ReturnType<typeof setTimeout> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let collectorTick: ReturnType<typeof setInterval> | null = null;
+let collectorSession = 0;
 let sessionAlerted = false;
 let sinceArchive = 0;
 let collectorSince = 0;
@@ -186,7 +189,7 @@ function pushPolicy(get: () => LinewatchState) {
   const devices = prefix
     ? s.devices.filter((d) => d.ip.startsWith(`${prefix}.`) || Boolean(d.quarantined))
     : s.devices;
-  void collectorPost(s.collectorUrl, "/policy", rulesToCollectorPolicy(s.rules, devices), s.collectorToken);
+  void collectorPost(s.collectorUrl, "/policy", rulesToCollectorPolicy(s.rules, devices), s.collectorUseToken ? s.collectorToken : "");
 }
 
 function maybeNotify(alert: Alert, deviceName: string, enabled: boolean) {
@@ -255,6 +258,31 @@ function normalizeEvent(e: TrafficEvent): TrafficEvent {
   };
 }
 
+function collectorObservationIdentity(event: TrafficEvent): string | null {
+  if (event.provenance?.source !== "collector_dns") return null;
+  const observedMac = event.provenance.observedFields.includes("mac") ? event.mac || "" : "";
+  return observedEventId({
+    source: "collector_dns",
+    ts: event.ts,
+    sourceIp: event.sourceIp,
+    mac: observedMac,
+    host: event.destHost,
+  });
+}
+
+function sameCollectorObservation(left: TrafficEvent, right: TrafficEvent): boolean {
+  const leftIdentity = collectorObservationIdentity(left);
+  return leftIdentity !== null && leftIdentity === collectorObservationIdentity(right);
+}
+
+function replaceOneReplay(events: TrafficEvent[], event: TrafficEvent): { rows: TrafficEvent[]; replay: boolean } {
+  const index = events.findIndex((row) => row.id === event.id || sameCollectorObservation(row, event));
+  if (index < 0) return { rows: [...events, event].slice(-MAX_EVENTS), replay: false };
+  // Replace exactly one matching row.  A source may legitimately emit two
+  // indistinguishable timestamps, so do not collapse every similar legacy row.
+  return { rows: events.map((row, rowIndex) => (rowIndex === index ? event : row)), replay: true };
+}
+
 function buildArchive(events: TrafficEvent[], devices: Device[], now: number): Archive | null {
   if (!events.length) return null;
   const slice = events.slice(-ARCHIVE_EVERY);
@@ -313,14 +341,23 @@ function ingestEvent(
   set: (fn: (s: LinewatchState) => Partial<LinewatchState> | LinewatchState) => void,
   get: () => LinewatchState,
   event: TrafficEvent,
-  opts?: { silent?: boolean },
+  opts?: { silent?: boolean; applyPolicy?: boolean },
 ) {
   const state = get();
+  // Demo events must never join a live-house session, even if a caller bypasses
+  // the settings button.  That keeps generated alerts from driving collector
+  // policy, quarantine, analytics, or the observed-history ledger.
+  if (state.houseSource === "house" && event.provenance.source === "demo") return;
   const device = state.devices.find((d) => d.id === event.deviceId);
   const devices = state.devices.some((d) => d.id === event.deviceId)
-    ? state.devices.map((d) => (d.id === event.deviceId ? { ...d, lastSeen: event.ts } : d))
+    ? state.devices.map((d) => (d.id === event.deviceId ? { ...d, lastSeen: Math.max(d.lastSeen, event.ts) } : d))
     : state.devices;
-  const events = [...state.events, event].slice(-MAX_EVENTS);
+  const eventMerge = replaceOneReplay(state.events, event);
+  const observedMerge = event.provenance.source === "demo"
+    ? { rows: state.observedEvents, replay: false }
+    : replaceOneReplay(state.observedEvents, event);
+  const alreadyPresent = eventMerge.replay || observedMerge.replay;
+  const events = eventMerge.rows;
   let alerts = state.alerts;
   const repeats = state.events.filter(
     (e) => e.deviceId === event.deviceId && e.destHost === event.destHost && e.blocked && e.ts >= event.ts - 10 * 60_000,
@@ -333,10 +370,10 @@ function ingestEvent(
         event.reason === "dga-entropy" ||
         event.reason === "quarantine" ||
         repeats >= 3));
-  if (shouldAlert) {
+  if (!alreadyPresent && shouldAlert) {
     const alert = alertFromEvent(event, { count: repeats, deviceName: device?.name });
     if (repeats >= 3) alert.kind = "repeat";
-    alerts = [alert, ...state.alerts].slice(0, MAX_ALERTS);
+    alerts = [alert, ...state.alerts.filter((existing) => existing.eventId !== event.id)].slice(0, MAX_ALERTS);
     if (!opts?.silent) {
       if (state.rules.sound) {
         if (alert.severity === "high") playAlertTone();
@@ -352,20 +389,17 @@ function ingestEvent(
     }
   }
   let archives = state.archives;
-  sinceArchive += 1;
+  if (!alreadyPresent) sinceArchive += 1;
   if (sinceArchive >= ARCHIVE_EVERY) {
     const arc = buildArchive(events, devices, Date.now());
     if (arc) archives = [arc, ...archives].slice(0, MAX_ARCHIVES);
     sinceArchive = 0;
   }
-  const observedEvents =
-    event.provenance.source === "demo"
-      ? state.observedEvents
-      : [...state.observedEvents.filter((row) => row.id !== event.id), event].slice(-MAX_EVENTS);
+  const observedEvents = observedMerge.rows;
   set(() => ({ devices, events, observedEvents, alerts, archives, now: Date.now() }));
   const latest = get();
   const dev = latest.devices.find((d) => d.id === event.deviceId);
-  if (dev && !dev.quarantined && autoQuarantineOn(latest.rules, dev.owner, dev.role)) {
+  if (!alreadyPresent && opts?.applyPolicy !== false && dev && !dev.quarantined && autoQuarantineOn(latest.rules, dev.owner, dev.role)) {
     const cut = event.ts - 15 * 60_000;
     const high = latest.events.filter(
       (e) =>
@@ -422,6 +456,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   houseSource: "demo",
   collectorUrl: "",
   collectorToken: "",
+  collectorUseToken: false,
   collectorStatus: null,
   lanProbe: null,
   discovering: false,
@@ -701,6 +736,11 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     for (const line of lines) {
       const parsed = parseLogLine(line);
       if (!parsed) continue;
+      if (count === 0 && get().houseSource !== "house") {
+        // An imported observation starts a separate live ledger; no demo row
+        // may remain available to its analytics or enforcement code.
+        set({ devices: [], events: get().observedEvents, alerts: [], archives: [], houseSource: "house" });
+      }
       let devices = get().devices;
       if (!devices.some((d) => d.ip === parsed.sourceIp)) {
         const unknown: Device = {
@@ -724,7 +764,9 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
         devices,
         rules: s.rules,
       });
-      ingestEvent(set, get, event, { silent: true });
+      // Imported history documents prior DNS observations; it is not a live
+      // enforcement signal and cannot quarantine a collector device.
+      ingestEvent(set, get, event, { silent: true, applyPolicy: false });
       count += 1;
     }
     set({
@@ -737,6 +779,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
 
   fireDemoAlert: () => {
     const s = get();
+    if (s.houseSource === "house") return;
     const sample = adultSample(s.devices, s.rules, Date.now());
     if (sample) ingestEvent(set, get, sample);
     schedulePersist(get);
@@ -764,10 +807,14 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
 
   setCollectorToken: (collectorToken) => set({ collectorToken }),
 
-  connectCollector: async (url) => {
+  connectCollector: async (url, useConfiguredToken = true) => {
+    const session = ++collectorSession;
+    const isCurrentSession = () => session === collectorSession && get().houseSource === "house";
     const target = normalizeCollectorUrlExport(url ?? get().collectorUrl);
-    set({ collectorUrl: target });
-    const status = await fetchCollectorStatus(target, 4000, get().collectorToken);
+    const activeToken = useConfiguredToken ? get().collectorToken : "";
+    set({ collectorUrl: target, collectorUseToken: useConfiguredToken });
+    const status = await fetchCollectorStatus(target, 4000, activeToken);
+    if (session !== collectorSession) return status;
     const lan = get().lanProbe;
     const gateway = status.gateway || lan?.likelyGateway || "";
     const prefix = gateway ? gateway.split(".").slice(0, 3).join(".") : "";
@@ -785,13 +832,16 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     if (get().houseSource !== "house") {
       set({ devices: [], events: get().observedEvents, alerts: [], archives: [], houseSource: "house" });
     }
+    if (!isCurrentSession()) return status;
     collectorSince = Date.now() - WEEK_MS;
     if (collectorTick) clearInterval(collectorTick);
     const pull = async () => {
       try {
-        const rows = await pullCollectorEvents(target, collectorSince, get().collectorToken);
+        const rows = await pullCollectorEvents(target, collectorSince, activeToken);
+        if (!isCurrentSession()) return;
         if (rows.length) {
           for (const row of rows) {
+            if (!isCurrentSession()) return;
             if (row.ts > collectorSince) collectorSince = row.ts;
             let devices = get().devices;
             const mac = (row.mac || "").toLowerCase();
@@ -827,18 +877,20 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
               rules: get().rules,
             });
             const live = row.ts > Date.now() - 15_000;
-            ingestEvent(set, get, event, { silent: !live });
+            ingestEvent(set, get, event, { silent: !live, applyPolicy: live });
           }
           const t = Date.now();
           recentTimes.push(t);
           while (recentTimes[0] && recentTimes[0] < t - 60_000) recentTimes.shift();
           set({ eventsPerMin: recentTimes.length, now: t });
         }
-        const next = await fetchCollectorStatus(target, 4000, get().collectorToken);
+        const next = await fetchCollectorStatus(target, 4000, activeToken);
+        if (!isCurrentSession()) return;
         const insights =
           next.insights && typeof next.insights === "object" ? (next.insights as LinewatchState["insights"]) : get().insights;
         set({ collectorStatus: next, houseSource: "house", insights });
       } catch (err) {
+        if (!isCurrentSession()) return;
         set({
           collectorStatus: {
             ok: false,
@@ -848,6 +900,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
       }
     };
     await pull();
+    if (!isCurrentSession()) return status;
     collectorTick = setInterval(() => void pull(), 2500);
     set({ houseSource: "house", ingestNote: `Connected to collector ${target}` });
     toast.success("House collector connected", { description: status.router?.label ?? status.gateway ?? target });
@@ -857,13 +910,15 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
   },
 
   disconnectCollector: () => {
+    collectorSession += 1;
     if (collectorTick) clearInterval(collectorTick);
     collectorTick = null;
-    set({ collectorStatus: null });
+    set({ collectorStatus: null, collectorUseToken: false });
     schedulePersist(get);
   },
 
   useDemoHouse: () => {
+    collectorSession += 1;
     if (collectorTick) clearInterval(collectorTick);
     collectorTick = null;
     const s = get();
@@ -885,9 +940,11 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
 
   autoJoinHouse: async () => {
     if (get().discovering) return;
+    const session = collectorSession;
     set({ discovering: true });
     try {
       const lan = await probeLanNet();
+      if (session !== collectorSession) return;
       const saved = get().collectorUrl;
       const suggestions = collectorUrlSuggestions(lan, saved);
       const filled = saved || suggestions[0] || "";
@@ -896,13 +953,16 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
         suggestedUrls: suggestions.slice(0, 20),
         collectorUrl: filled,
       });
-      const found = await discoverCollector(lan, saved, get().collectorToken);
+      const found = await discoverCollector(lan, saved);
+      if (session !== collectorSession) return;
       if (found) {
         set({
           suggestedUrls: [found.url, ...suggestions.filter((u) => u !== found.url)].slice(0, 20),
           collectorUrl: found.url,
         });
-        await get().connectCollector(found.url);
+        // A discovery response is not a credential trust decision.  The user
+        // can explicitly reconnect to this displayed address to use a token.
+        await get().connectCollector(found.url, false);
       }
     } finally {
       set({ discovering: false });
@@ -925,7 +985,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     pushPolicy(get);
     const s = get();
     const d = s.devices.find((x) => x.id === id);
-    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: true, reason }, s.collectorToken);
+    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: true, reason }, s.collectorUseToken ? s.collectorToken : "");
   },
 
   releaseQuarantine: (id) => {
@@ -938,7 +998,7 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     pushPolicy(get);
     const s = get();
     const d = s.devices.find((x) => x.id === id);
-    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: false }, s.collectorToken);
+    if (s.collectorUrl && d) void collectorPost(s.collectorUrl, "/quarantine", { mac: d.mac, on: false }, s.collectorUseToken ? s.collectorToken : "");
     toast.success("Released from quarantine");
   },
 
@@ -952,10 +1012,10 @@ export const useLinewatch = create<LinewatchState>((set, get) => ({
     set({ scan: { at: Date.now(), targets: 0, findings: [], running: true } });
     const s = get();
     if (s.houseSource === "house" && s.collectorUrl) {
-      await collectorPost(s.collectorUrl, "/scan", {}, s.collectorToken);
+      await collectorPost(s.collectorUrl, "/scan", {}, s.collectorUseToken ? s.collectorToken : "");
       for (let i = 0; i < 20; i++) {
         await new Promise((r) => setTimeout(r, 500));
-        const data = await collectorGet<{ running?: boolean; scan?: ScanReport }>(s.collectorUrl, "/scan", s.collectorToken);
+        const data = await collectorGet<{ running?: boolean; scan?: ScanReport }>(s.collectorUrl, "/scan", s.collectorUseToken ? s.collectorToken : "");
         if (data?.scan && !data.running) {
           set({ scan: { ...data.scan, running: false } });
           return;
