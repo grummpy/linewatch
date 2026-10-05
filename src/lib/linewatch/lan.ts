@@ -167,9 +167,10 @@ export function collectorUrlSuggestions(probe: LanProbe, savedUrl = ""): string[
 async function probeOne(
   url: string,
   timeout: number,
-  token: string,
 ): Promise<{ url: string; status: CollectorStatus } | null> {
-  const status = await fetchCollectorStatus(url, timeout, token);
+  // Discovery hosts are guesses, not trusted collectors.  Never attach a
+  // management credential while trying them: any LAN service can answer :8787.
+  const status = await fetchCollectorStatus(url, timeout);
   if (status.ok && status.service === "linewatch-collector") return { url, status };
   return null;
 }
@@ -177,20 +178,19 @@ async function probeOne(
 export async function discoverCollector(
   probe: LanProbe,
   savedUrl = "",
-  token = "",
 ): Promise<{ url: string; status: CollectorStatus } | null> {
   const urls = collectorUrlSuggestions(probe, savedUrl);
   if (!urls.length) return null;
   const priority = urls.slice(0, Math.min(4, urls.length));
   const rest = urls.slice(priority.length);
 
-  const first = await Promise.all(priority.map((u) => probeOne(u, savedUrl ? 2200 : 800, token)));
+  const first = await Promise.all(priority.map((u) => probeOne(u, savedUrl ? 2200 : 800)));
   const hit = first.find((x) => x);
   if (hit) return hit;
 
   for (let i = 0; i < rest.length; i += 8) {
     const batch = rest.slice(i, i + 8);
-    const found = await Promise.all(batch.map((u) => probeOne(u, 400, token)));
+    const found = await Promise.all(batch.map((u) => probeOne(u, 400)));
     const next = found.find((x) => x);
     if (next) return next;
   }

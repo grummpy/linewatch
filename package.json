@@ -24,7 +24,9 @@
     "collector:python": "python3 collector/python/linewatch_dns.py",
     "collector:java": "javac collector/java/LinewatchDns.java && java -cp collector/java LinewatchDns",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' collector/lib/policy.test.mjs collector/security.test.mjs && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts && npm run test:provenance",
+    "test": "node --test 'scripts/**/*.test.mjs' collector/lib/policy.test.mjs collector/security.test.mjs && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts && npm run test:lan && npm run test:store-guards && npm run test:provenance",
+    "test:lan": "rolldown src/lib/linewatch/lan.test.ts --platform=node --format=esm --file=/tmp/linewatch-lan.test.mjs && node --test /tmp/linewatch-lan.test.mjs",
+    "test:store-guards": "rolldown src/lib/linewatch/store-guards.test.ts --platform=node --format=esm --file=/tmp/linewatch-store-guards.test.mjs && node --test /tmp/linewatch-store-guards.test.mjs",
     "test:provenance": "rolldown src/lib/linewatch/provenance.test.ts --platform=node --format=esm --file=/tmp/linewatch-provenance.test.mjs && node --test /tmp/linewatch-provenance.test.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."

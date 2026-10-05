@@ -231,8 +231,16 @@ function observedDnsEvent(opts: {
   // A DNS query does not reveal destination IP, transport, bytes, destination
   // region, or Sidewalk/Amazon routing. Keep these explicitly unavailable
   // instead of borrowing generated demo values.
+  // Collector responses are replayed after reconnect.  Use only fields that
+  // identify the received DNS row so the same observation has the same ID
+  // instead of accumulating a new random UI event on every pull.
+  const stableIdentity = [opts.source, opts.ts, opts.sourceIp, opts.mac || "", opts.host].join("\u001f");
+  let stableHash = 2166136261;
+  for (let i = 0; i < stableIdentity.length; i += 1) {
+    stableHash = Math.imul(stableHash ^ stableIdentity.charCodeAt(i), 16777619);
+  }
   return {
-    id: newId("ev"),
+    id: `observed-${(stableHash >>> 0).toString(36)}`,
     ts: opts.ts,
     deviceId: device.id,
     owner: opts.owner || device.owner,
