@@ -126,8 +126,14 @@ const alerts = [];
 const logLines = [];
 let policy = mergePolicy(null);
 let dnsPortBound = 0;
+let lastDnsQueryAt = null;
 let lastScan = null;
 let scanRunning = false;
+
+function dnsPathState(port, lastObservedAt) {
+  if (!port) return "not_listening";
+  return lastObservedAt ? "observed" : "awaiting_query";
+}
 
 function note(line) {
   const row = `${new Date().toISOString()} ${line}`;
@@ -192,9 +198,17 @@ function pruneWeek(list, now = Date.now()) {
   return list.filter((e) => e.ts >= cut);
 }
 
+export function writeFileAtomically(file, body) {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  const temp = path.join(dir, `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(temp, body, "utf8");
+  fs.renameSync(temp, file);
+}
+
 function saveJson(file, data) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  writeFileAtomically(file, JSON.stringify(data, null, 2));
 }
 
 function saveLogs() {
@@ -218,7 +232,10 @@ function saveLogs() {
         }),
       )
       .join("\n");
-    fs.writeFileSync(LOG_FILE, body ? `${body}\n` : "");
+    // A collector can be stopped or rebooted at any time. Replace each ledger
+    // file only after a complete sibling file is written, so restart reads the
+    // previous complete copy rather than a truncated direct overwrite.
+    writeFileAtomically(LOG_FILE, body ? `${body}\n` : "");
     saveJson(ALERT_FILE, pruneWeek(alerts).slice(0, 200));
     saveJson(POLICY_FILE, policy);
   } catch (err) {
@@ -230,6 +247,15 @@ let persistTimer = null;
 function scheduleSave() {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(saveLogs, 400);
+}
+
+function saveBeforeShutdown(signal) {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  note(`Received ${signal}; saving retained DNS history before exit.`);
+  saveLogs();
 }
 
 function loadDisk() {
@@ -499,6 +525,9 @@ function forwardDns(packet) {
 async function handleDns(msg, rinfo, sock) {
   const q = decodeQuery(msg);
   if (!q) return;
+  // Only a query received by this process is current evidence that the DNS
+  // path reaches the collector. A bound port is not enough to claim protection.
+  lastDnsQueryAt = Date.now();
   const decision = applyDecision(q.name, rinfo.address, Date.now());
   let reply;
   if (decision.action === "blocked") reply = sinkhole(q);
@@ -652,8 +681,19 @@ async function main() {
   policy = demoMigration.policy;
   if (demoMigration.removed) {
     note("Removed bundled demonstration household from live policy");
-    saveLogs();
   }
+  // Compact an idle collector's old rows at startup rather than waiting for
+  // the hourly sweep or the next DNS query.
+  saveLogs();
+
+  process.once("SIGINT", () => {
+    saveBeforeShutdown("SIGINT");
+    process.exit(0);
+  });
+  process.once("SIGTERM", () => {
+    saveBeforeShutdown("SIGTERM");
+    process.exit(0);
+  });
 
   setInterval(() => {
     const before = logs.length;
@@ -693,6 +733,8 @@ async function main() {
     httpPort: HTTP_PORT,
     dnsPort: dnsPortBound,
     dns: Boolean(dnsPortBound),
+    dnsPath: dnsPathState(dnsPortBound, lastDnsQueryAt),
+    dnsPathLastObservedAt: lastDnsQueryAt,
     eventCount: logs.length,
     lastEventAt: logs.length ? logs[logs.length - 1].ts : null,
     listening: true,
@@ -842,4 +884,4 @@ if (isMain) {
   });
 }
 
-export { allowConfiguredCors, applyDecision, authorizedManagementRequest, loadDisk, resolveManagementConfig };
+export { allowConfiguredCors, applyDecision, authorizedManagementRequest, dnsPathState, loadDisk, resolveManagementConfig };

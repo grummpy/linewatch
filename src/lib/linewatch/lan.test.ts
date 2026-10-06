@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { discoverCollector, fetchCollectorStatus } from "./lan";
+import { discoverCollector, fetchCollectorStatus, hasObservedDnsPath } from "./lan";
 
 test("candidate discovery never sends a management bearer token", async () => {
   const originalFetch = globalThis.fetch;
@@ -40,4 +40,10 @@ test("an explicitly selected collector can still use its supplied token", async 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("the desk requires a current collector DNS observation before claiming protection", () => {
+  assert.equal(hasObservedDnsPath({ ok: true, dns: true, dnsPath: "awaiting_query" }), false);
+  assert.equal(hasObservedDnsPath({ ok: true, dns: true, dnsPath: "not_verified" }), false);
+  assert.equal(hasObservedDnsPath({ ok: true, dns: true, dnsPath: "observed" }), true);
 });

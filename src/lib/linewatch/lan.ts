@@ -21,6 +21,9 @@ export type CollectorStatus = {
   httpPort?: number;
   dnsPort?: number;
   dns?: boolean;
+  /** A listener alone does not prove household DNS currently reaches it. */
+  dnsPath?: "observed" | "awaiting_query" | "not_verified" | "not_listening";
+  dnsPathLastObservedAt?: number | null;
   eventCount?: number;
   lastEventAt?: number | null;
   alwaysOn?: boolean;
@@ -29,6 +32,15 @@ export type CollectorStatus = {
   insights?: unknown;
   error?: string;
 };
+
+/**
+ * Protection is verified only after this collector process received a DNS
+ * query. A bound UDP port or historical log row cannot prove the router is
+ * using this collector now.
+ */
+export function hasObservedDnsPath(status: CollectorStatus | null | undefined): boolean {
+  return status?.ok === true && status.dnsPath === "observed";
+}
 
 export type CollectorEvent = {
   ts: number;

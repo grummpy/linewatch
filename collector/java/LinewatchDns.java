@@ -168,7 +168,7 @@ public class LinewatchDns {
           n = Files.readAllLines(dataDir.resolve("logs.jsonl")).size();
         }
       } catch (IOException ignored) { }
-      String json = "{\"ok\":true,\"service\":\"linewatch-collector\",\"runtime\":\"java\",\"alwaysOn\":true,\"retentionDays\":7,\"dns\":true,\"eventCount\":" + n + "}";
+      String json = "{\"ok\":true,\"service\":\"linewatch-collector\",\"runtime\":\"java\",\"alwaysOn\":true,\"retentionDays\":7,\"dns\":true,\"dnsPath\":\"not_verified\",\"eventCount\":" + n + "}";
       sendJson(ex, json);
     });
     http.createContext("/events", (HttpExchange ex) -> {

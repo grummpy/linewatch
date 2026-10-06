@@ -1,11 +1,35 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
   allowConfiguredCors,
   authorizedManagementRequest,
+  dnsPathState,
   resolveManagementConfig,
+  writeFileAtomically,
 } from "./linewatch-collector.mjs";
+
+test("a bound DNS listener is not treated as a verified household path", () => {
+  assert.equal(dnsPathState(0, null), "not_listening");
+  assert.equal(dnsPathState(53, null), "awaiting_query");
+  assert.equal(dnsPathState(53, 1_728_000_000_000), "observed");
+});
+
+test("collector recovery writes replace complete files without direct overwrite", () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "linewatch-recovery-"));
+  try {
+    const target = path.join(temp, "logs.jsonl");
+    fs.writeFileSync(target, "old complete row\n", "utf8");
+    writeFileAtomically(target, "new complete row\n");
+    assert.equal(fs.readFileSync(target, "utf8"), "new complete row\n");
+    assert.deepEqual(fs.readdirSync(temp).sort(), ["logs.jsonl"]);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
 
 test("collector management defaults to loopback without CORS", () => {
   const config = resolveManagementConfig({});
