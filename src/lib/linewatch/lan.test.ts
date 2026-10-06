@@ -40,6 +40,8 @@ test("an explicitly selected collector can still use its supplied token", async 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
 test("the desk requires a current collector DNS observation before claiming protection", () => {
   assert.equal(hasObservedDnsPath({ ok: true, dns: true, dnsPath: "awaiting_query" }), false);
   assert.equal(hasObservedDnsPath({ ok: true, dns: true, dnsPath: "not_verified" }), false);
