@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { hasObservedDnsPath } from "@/lib/linewatch/lan";
 import { useLinewatch } from "@/lib/linewatch/store";
 
 const COLLECTOR_CMD = "npm run collector";
@@ -32,8 +33,8 @@ export function HouseConnect() {
     setUrl(collectorUrl);
   }, [collectorUrl]);
 
-  const live = houseSource === "house" && collectorStatus?.ok && collectorStatus.dns === true;
-  const needsDns = houseSource === "house" && collectorStatus?.ok && collectorStatus.dns !== true;
+  const live = houseSource === "house" && hasObservedDnsPath(collectorStatus);
+  const needsDns = houseSource === "house" && collectorStatus?.ok && !live;
   const routerIp = collectorStatus?.gateway || lanProbe?.likelyGateway || "";
   const prefix = routerIp ? routerIp.split(".").slice(0, 3).join(".") : "";
 
@@ -64,13 +65,15 @@ export function HouseConnect() {
 
       {live ? (
         <p className="mt-4 text-sm text-ok">
-          Collector on {collectorStatus.lanIp || collectorUrl}. {collectorStatus.eventCount ?? 0}{" "}
+          Collector on {collectorStatus?.lanIp || collectorUrl}. {collectorStatus?.eventCount ?? 0}{" "}
           queries this week. Close the phone — this computer still watches. Older than 7 days is
           overwritten.
         </p>
       ) : needsDns ? (
         <p className="mt-4 text-sm text-danger">
-          The collector is reachable, but it is not serving DNS. Point the router’s DNS at this computer before relying on protection.
+          {collectorStatus?.dns
+            ? "The collector is listening, but it has not observed a DNS query since it started. Point the router’s DNS at this computer, then make a request from a household device before relying on protection."
+            : "The collector is reachable, but it is not serving DNS. Point the router’s DNS at this computer before relying on protection."}
         </p>
       ) : (
         <div className="mt-4 space-y-3 text-sm text-muted">

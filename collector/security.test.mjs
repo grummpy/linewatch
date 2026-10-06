@@ -4,8 +4,15 @@ import test from "node:test";
 import {
   allowConfiguredCors,
   authorizedManagementRequest,
+  dnsPathState,
   resolveManagementConfig,
 } from "./linewatch-collector.mjs";
+
+test("a bound DNS listener is not treated as a verified household path", () => {
+  assert.equal(dnsPathState(0, null), "not_listening");
+  assert.equal(dnsPathState(53, null), "awaiting_query");
+  assert.equal(dnsPathState(53, 1_728_000_000_000), "observed");
+});
 
 test("collector management defaults to loopback without CORS", () => {
   const config = resolveManagementConfig({});

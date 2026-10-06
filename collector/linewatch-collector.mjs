@@ -126,8 +126,14 @@ const alerts = [];
 const logLines = [];
 let policy = mergePolicy(null);
 let dnsPortBound = 0;
+let lastDnsQueryAt = null;
 let lastScan = null;
 let scanRunning = false;
+
+function dnsPathState(port, lastObservedAt) {
+  if (!port) return "not_listening";
+  return lastObservedAt ? "observed" : "awaiting_query";
+}
 
 function note(line) {
   const row = `${new Date().toISOString()} ${line}`;
@@ -499,6 +505,9 @@ function forwardDns(packet) {
 async function handleDns(msg, rinfo, sock) {
   const q = decodeQuery(msg);
   if (!q) return;
+  // Only a query received by this process is current evidence that the DNS
+  // path reaches the collector. A bound port is not enough to claim protection.
+  lastDnsQueryAt = Date.now();
   const decision = applyDecision(q.name, rinfo.address, Date.now());
   let reply;
   if (decision.action === "blocked") reply = sinkhole(q);
@@ -693,6 +702,8 @@ async function main() {
     httpPort: HTTP_PORT,
     dnsPort: dnsPortBound,
     dns: Boolean(dnsPortBound),
+    dnsPath: dnsPathState(dnsPortBound, lastDnsQueryAt),
+    dnsPathLastObservedAt: lastDnsQueryAt,
     eventCount: logs.length,
     lastEventAt: logs.length ? logs[logs.length - 1].ts : null,
     listening: true,
@@ -842,4 +853,4 @@ if (isMain) {
   });
 }
 
-export { allowConfiguredCors, applyDecision, authorizedManagementRequest, loadDisk, resolveManagementConfig };
+export { allowConfiguredCors, applyDecision, authorizedManagementRequest, dnsPathState, loadDisk, resolveManagementConfig };

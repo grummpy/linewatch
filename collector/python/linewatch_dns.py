@@ -286,6 +286,7 @@ class Api(BaseHTTPRequestHandler):
                     "alwaysOn": True,
                     "retentionDays": 7,
                     "dns": True,
+                    "dnsPath": "not_verified",
                     "eventCount": len(read_logs()),
                 },
             )

@@ -8,6 +8,7 @@ import { AppShell } from "@/components/app-shell";
 import { EventDetail } from "@/components/event-detail";
 import { KpiStrip } from "@/components/kpi-strip";
 import { LiveFeed } from "@/components/live-feed";
+import { hasObservedDnsPath } from "@/lib/linewatch/lan";
 import { useLinewatch } from "@/lib/linewatch/store";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -20,8 +21,8 @@ function Home() {
   const discovering = useLinewatch((s) => s.discovering);
   const lanProbe = useLinewatch((s) => s.lanProbe);
   const house = houseSource === "house";
-  const live = house && collectorStatus?.ok && collectorStatus.dns === true;
-  const dnsNeedsAttention = house && collectorStatus?.ok && collectorStatus.dns !== true;
+  const live = house && hasObservedDnsPath(collectorStatus);
+  const dnsNeedsAttention = house && collectorStatus?.ok && !live;
   const routerIp = collectorStatus?.gateway || lanProbe?.likelyGateway;
 
   return (
@@ -36,7 +37,7 @@ function Home() {
                 : discovering
                   ? "Looking for your router on this Wi-Fi…"
                 : dnsNeedsAttention
-                  ? "The collector is reachable, but house DNS is not active yet."
+                  ? "The collector is reachable, but Linewatch has not verified that house DNS reaches it yet."
                   : "Opens looking for your router. Connect once — the collector computer does the rest."}
             </p>
           </div>
