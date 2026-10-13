@@ -8,6 +8,7 @@ import {
   allowConfiguredCors,
   authorizedManagementRequest,
   dnsPathState,
+  pruneWeek,
   resolveManagementConfig,
   writeFileAtomically,
 } from "./linewatch-collector.mjs";
@@ -25,6 +26,47 @@ test("collector recovery writes replace complete files without direct overwrite"
     fs.writeFileSync(target, "old complete row\n", "utf8");
     writeFileAtomically(target, "new complete row\n");
     assert.equal(fs.readFileSync(target, "utf8"), "new complete row\n");
+    assert.deepEqual(fs.readdirSync(temp).sort(), ["logs.jsonl"]);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test("seven-day retention keeps the exact cutoff and a fresh event during compaction", () => {
+  const now = 1_728_000_000_000;
+  const week = 7 * 24 * 60 * 60 * 1000;
+  const rows = [
+    { ts: now - week - 1, host: "expired.example.test" },
+    { ts: now - week, host: "cutoff.example.test" },
+    { ts: now - 1, host: "recent.example.test" },
+    // Models a DNS event written while a periodic compaction is deciding what
+    // to retain. It must not vanish with the expired row.
+    { ts: now, host: "fresh.example.test" },
+  ];
+
+  assert.deepEqual(
+    pruneWeek(rows, now).map((row) => row.host),
+    ["cutoff.example.test", "recent.example.test", "fresh.example.test"],
+  );
+  // A clock moving backward does not silently discard newer retained rows.
+  assert.equal(pruneWeek(rows, now - 60_000).some((row) => row.host === "fresh.example.test"), true);
+});
+
+test("failed atomic replacement keeps the prior ledger and cleans its temporary sibling", () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "linewatch-atomic-failure-"));
+  try {
+    const target = path.join(temp, "logs.jsonl");
+    fs.writeFileSync(target, "old complete row\n", "utf8");
+    assert.throws(
+      () =>
+        writeFileAtomically(target, "new partial row\n", {
+          renameSync: () => {
+            throw new Error("synthetic interrupted replacement");
+          },
+        }),
+      /synthetic interrupted replacement/,
+    );
+    assert.equal(fs.readFileSync(target, "utf8"), "old complete row\n");
     assert.deepEqual(fs.readdirSync(temp).sort(), ["logs.jsonl"]);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });

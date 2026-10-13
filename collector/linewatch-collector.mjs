@@ -193,17 +193,36 @@ function guessGateway(lans) {
   return parts.join(".");
 }
 
-function pruneWeek(list, now = Date.now()) {
+/**
+ * Return the events still inside the collector's inclusive seven-day window.
+ *
+ * Keeping an event exactly at the cutoff makes retention deterministic for a
+ * saved row and avoids dropping it merely because compaction and a new event
+ * happen in the same clock tick.
+ */
+export function pruneWeek(list, now = Date.now()) {
   const cut = now - WEEK_MS;
   return list.filter((e) => e.ts >= cut);
 }
 
-export function writeFileAtomically(file, body) {
+export function writeFileAtomically(file, body, { writeFileSync = fs.writeFileSync, renameSync = fs.renameSync, unlinkSync = fs.unlinkSync } = {}) {
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true });
   const temp = path.join(dir, `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
-  fs.writeFileSync(temp, body, "utf8");
-  fs.renameSync(temp, file);
+  try {
+    writeFileSync(temp, body, "utf8");
+    renameSync(temp, file);
+  } catch (error) {
+    // A failed replacement must leave the earlier complete ledger readable.
+    // Best-effort cleanup also prevents stale temporary files from being
+    // mistaken for a recovery source on a later restart.
+    try {
+      unlinkSync(temp);
+    } catch {
+      /* The original write error remains the useful failure signal. */
+    }
+    throw error;
+  }
 }
 
 function saveJson(file, data) {
